@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+/*
+  index.css (recomendado)
+  - Tailwind v4 (CSS-first)
+  - Global base SOLO lo necesario
+  - El look “real” vive en className + dashboardStyles.ts
+*/
+
+@layer base {
+  html, body, #root { height: 100%; }
+
+  body {
+    /* Si prefieres otro fondo global, cámbialo aquí */
+    @apply bg-slate-950 text-slate-100;
+  }
+
+  /* Scrollbar: opcional */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: rgb(15 23 42); }
+  ::-webkit-scrollbar-thumb { background: rgb(71 85 105); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(100 116 139); }
+
+  /* Selección: opcional */
+  ::selection { background: rgb(99 102 241 / 0.35); }
+}

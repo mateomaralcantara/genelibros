@@ -1,0 +1,191 @@
+# ============================================================
+# BESTSELLER / GENELIBROS
+# Archivos que NO deben subirse a GitHub
+# ============================================================
+
+# ------------------------------------------------------------
+# DEPENDENCIAS
+# ------------------------------------------------------------
+node_modules/
+.pnpm-store/
+
+# ------------------------------------------------------------
+# BUILDS / CACHE
+# ------------------------------------------------------------
+dist/
+dist-ssr/
+build/
+coverage/
+.vite/
+.cache/
+.turbo/
+.tmp/
+temp/
+tmp/
+
+# ------------------------------------------------------------
+# VARIABLES DE ENTORNO / SECRETOS
+# ------------------------------------------------------------
+.env
+.env.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
+.env.test
+.env.test.local
+
+# Permitimos únicamente plantilla SIN secretos
+!.env.example
+
+# ------------------------------------------------------------
+# VERCEL LOCAL
+# ------------------------------------------------------------
+.vercel/
+
+# ------------------------------------------------------------
+# SUPABASE LOCAL
+# NO ignorar migraciones SQL reales
+# ------------------------------------------------------------
+supabase/.temp/
+supabase/.branches/
+
+# SQL privados/locales que puedan contener secretos reales
+sql/*-local.sql
+sql/*-private.sql
+sql/*-secret.sql
+sql/*-secrets.sql
+
+# ------------------------------------------------------------
+# BACKUPS / HARDENING
+# ------------------------------------------------------------
+.hardening-backups/
+*.bak
+*.bak.*
+*.bak_*
+*.bak-*
+*.backup
+*.backup-*
+*.old
+*.orig
+
+# ------------------------------------------------------------
+# REPORTES LOCALES
+# Pueden contener usuarios, emails, métricas o información interna
+# ------------------------------------------------------------
+reports/
+
+# ------------------------------------------------------------
+# ARCHIVOS DE CREDENCIALES
+# ------------------------------------------------------------
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+
+credentials.json
+service-account.json
+service_account.json
+secrets.json
+
+# ------------------------------------------------------------
+# ARCHIVOS PERSONALES / CLAVES MANUALES
+# ------------------------------------------------------------
+datos.txt
+clave.txt
+claves.txt
+secret.txt
+secrets.txt
+password.txt
+passwords.txt
+
+# ------------------------------------------------------------
+# LOGS
+# ------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ------------------------------------------------------------
+# SISTEMA OPERATIVO
+# ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ------------------------------------------------------------
+# EDITORES
+# ------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.code-workspace
+
+# ------------------------------------------------------------
+# TEST / HEALTH LOCAL
+# ------------------------------------------------------------
+.health/
+
+# ------------------------------------------------------------
+# PAQUETES TEMPORALES GENERADOS
+# ------------------------------------------------------------
+*.zip
+*.7z
+*.rar
+
+# ------------------------------------------------------------
+# ARCHIVOS DE SUPERVISION LOCAL
+# ------------------------------------------------------------
+users-supervision-*.json
+users-supervision-*.csv
+users-supervision-*.html
+
+.gitignore.backup-*
+
+# ============================================================
+# ARTEFACTOS DE AUDITORIA / DIAGNOSTICO GENERADOS
+# ============================================================
+.scan/
+style-trace/
+
+audit_report.json
+components-report.json
+components-report.precise.json
+
+dashboard-style-map.json
+dashboard-style-report.html
+
+projects.json
+projects.optimized.json
+
+# Reportes generados localmente
+reports/
+
+# Backups
+.hardening-backups/
+.gitignore.backup-*
+
+# ============================================================
+# HERRAMIENTAS TEMPORALES / MIGRACIONES MANUALES ANTIGUAS
+# ============================================================
+audit_from_app_tsx.py
+optimize_projects_json.py
+patch_vite_gemini_env.py
+
+# Historial Git externo / dumps
+*.dump
+*.sql.backup
