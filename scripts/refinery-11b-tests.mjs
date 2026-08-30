@@ -15,7 +15,7 @@ function test(name, fn) {
 }
 
 const required = [
-  "api/manuscript-audit.ts",
+  "src/server/vercel-handlers/manuscript-audit.ts",
   "src/server/refinery-runtime.ts",
   "src/lib/refinery/types.ts",
   "src/lib/refinery/metrics.ts",
@@ -26,7 +26,7 @@ const required = [
 
 for (const file of required) test(`Existe ${file}`, () => exists(file));
 
-const api = read("api/manuscript-audit.ts");
+const api = read("src/server/vercel-handlers/manuscript-audit.ts");
 const runtime = read("src/server/refinery-runtime.ts");
 const metrics = read("src/lib/refinery/metrics.ts");
 const schema = read("sql/refinery-11b-schema.sql");

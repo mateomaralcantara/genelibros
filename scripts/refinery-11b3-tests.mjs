@@ -11,9 +11,9 @@ function test(name, fn) {
 }
 
 const required = [
-  "api/refinement-jobs.ts",
-  "api/refinement-worker.ts",
-  "api/refinement-apply.ts",
+  "src/server/vercel-handlers/refinement-jobs.ts",
+  "src/server/vercel-handlers/refinement-worker.ts",
+  "src/server/vercel-handlers/refinement-apply.ts",
   "src/server/refinery-execution-runtime.ts",
   "src/lib/refinery-execution/types.ts",
   "src/lib/refinery-execution/client.ts",
@@ -24,9 +24,9 @@ const required = [
 ];
 for (const file of required) test(`Existe ${file}`, () => exists(file));
 
-const worker = read("api/refinement-worker.ts");
-const jobs = read("api/refinement-jobs.ts");
-const apply = read("api/refinement-apply.ts");
+const worker = read("src/server/vercel-handlers/refinement-worker.ts");
+const jobs = read("src/server/vercel-handlers/refinement-jobs.ts");
+const apply = read("src/server/vercel-handlers/refinement-apply.ts");
 const runtime = read("src/server/refinery-execution-runtime.ts");
 const sql = read("sql/refinery-11b3-execution-engine.sql");
 const registry = read("src/lib/brain/agent-registry.ts");

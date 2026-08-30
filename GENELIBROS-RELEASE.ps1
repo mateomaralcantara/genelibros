@@ -81,7 +81,7 @@ $Tests = @(
     "refinery:11b:test",
     "refinery:11b2:test",
     "refinery:11b3:test",
-    "deep-work:11c:test",
+    "deep:11c:test",
     "research:11d:test"
 )
 
@@ -138,6 +138,15 @@ $Paths = @(
     "package.json",
     "GENELIBROS-RELEASE.ps1",
     "RUN-VERCEL-NODE22.ps1",
+    "vercel.json",
+
+    # Vercel consolidated functions
+    "api/deep-work.ts",
+    "api/refinery.ts",
+    "api/research-intelligence.ts",
+
+    # Internal handlers used by consolidated functions
+    "src/server/vercel-handlers",
 
     "api/deep-work-apply.ts",
     "api/deep-work-jobs.ts",

@@ -1,9 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
-import { auditManuscript } from "../src/server/refinery-runtime";
+import { auditManuscript } from "../../server/refinery-runtime";
 import type {
   ManuscriptAuditMode,
   ManuscriptChapterInput,
-} from "../src/lib/refinery/types";
+} from "../../lib/refinery/types";
 
 export const maxDuration = 300;
 

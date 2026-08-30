@@ -12,9 +12,9 @@ console.log("\n===============================================");
 console.log("GENELIBROS 5.0 — DEEP WORK 11C TESTS");
 console.log("===============================================");
 const files = [
-  "api/deep-work-jobs.ts",
-  "api/deep-work-worker.ts",
-  "api/deep-work-apply.ts",
+  "src/server/vercel-handlers/deep-work-jobs.ts",
+  "src/server/vercel-handlers/deep-work-worker.ts",
+  "src/server/vercel-handlers/deep-work-apply.ts",
   "src/server/deep-work-runtime.ts",
   "src/lib/deep-work/types.ts",
   "src/lib/deep-work/client.ts",
@@ -30,9 +30,9 @@ for (const agent of ["DEEP_PLANNER","LONG_CONTEXT_ANALYST","MULTI_PASS_WRITER","
   test(`${agent} READY`, registry.includes(`ready("${agent}"`));
 }
 const runtime = read("src/server/deep-work-runtime.ts");
-const worker = read("api/deep-work-worker.ts");
-const jobs = read("api/deep-work-jobs.ts");
-const apply = read("api/deep-work-apply.ts");
+const worker = read("src/server/vercel-handlers/deep-work-worker.ts");
+const jobs = read("src/server/vercel-handlers/deep-work-jobs.ts");
+const apply = read("src/server/vercel-handlers/deep-work-apply.ts");
 const sql = read("sql/deep-work-11c-engine.sql");
 const runner = read("scripts/run-deep-work-worker-local.mjs");
 const pkg = read("package.json");

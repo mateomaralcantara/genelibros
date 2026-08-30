@@ -19,8 +19,8 @@ function test(name, fn) {
 }
 
 const required = [
-  "api/manuscript-audit-jobs.ts",
-  "api/refinery-worker.ts",
+  "src/server/vercel-handlers/manuscript-audit-jobs.ts",
+  "src/server/vercel-handlers/refinery-worker.ts",
   "scripts/run-refinery-worker-local.mjs",
   "scripts/prepare-refinery-worker-local.ps1",
   "sql/refinery-11b2-durable-worker.sql",
@@ -32,8 +32,8 @@ for (const file of required) {
   test(`Existe ${file}`, () => exists(file));
 }
 
-const jobs = read("api/manuscript-audit-jobs.ts");
-const worker = read("api/refinery-worker.ts");
+const jobs = read("src/server/vercel-handlers/manuscript-audit-jobs.ts");
+const worker = read("src/server/vercel-handlers/refinery-worker.ts");
 const runner = read("scripts/run-refinery-worker-local.mjs");
 const sql = read("sql/refinery-11b2-durable-worker.sql");
 const runtime = read("src/server/refinery-runtime.ts");
