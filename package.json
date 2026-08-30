@@ -28,7 +28,21 @@
     "os4:10b:verify": "npm run os4:10b:test && npm run typecheck && npm run build",
     "os4:10b:live": "node scripts/os4-10b-live-verify.mjs",
     "brain:11a:test": "node scripts/brain-11a-tests.mjs",
-    "brain:verify": "npm run brain:11a:test && npm run typecheck && npm run build"
+    "brain:verify": "npm run brain:11a:test && npm run typecheck && npm run build",
+    "refinery:11b:test": "node scripts/refinery-11b-tests.mjs",
+    "refinery:verify": "npm run brain:11a:test && npm run refinery:11b:test && npm run typecheck && npm run build",
+    "refinery:11b2:test": "node scripts/refinery-11b2-tests.mjs",
+    "refinery:11b2:worker": "node scripts/run-refinery-worker-local.mjs",
+    "refinery:11b2:verify": "npm run brain:11a:test && npm run refinery:11b:test && npm run refinery:11b2:test && npm run typecheck && npm run build",
+    "refinery:11b3:test": "node scripts/refinery-11b3-tests.mjs",
+    "refinery:11b3:worker": "node scripts/run-refinement-worker-local.mjs",
+    "refinery:11b3:verify": "npm run brain:11a:test && npm run refinery:11b:test && npm run refinery:11b2:test && npm run refinery:11b3:test && npm run typecheck && npm run build",
+    "deep:11c:test": "node scripts/deep-work-11c-tests.mjs",
+    "deep:11c:worker": "node scripts/run-deep-work-worker-local.mjs",
+    "deep:11c:verify": "npm run brain:11a:test && npm run deep:11c:test && npm run typecheck && npm run build",
+    "research:11d:test": "node scripts/research-11d-tests.mjs",
+    "research:11d:worker": "node scripts/run-research-worker-local.mjs",
+    "research:11d:verify": "npm run research:11d:test && npm run typecheck"
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
