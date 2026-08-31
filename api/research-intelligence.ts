@@ -1,3 +1,22 @@
+function importDiagnostic(error: unknown) {
+  const err = error as {
+    name?: string;
+    code?: string;
+    message?: string;
+  };
+
+  if (process.env.VERCEL_ENV !== "preview") {
+    return undefined;
+  }
+
+  return {
+    name: String(err?.name || "Error"),
+    code: String(err?.code || ""),
+    message: String(
+      err?.message || "Unknown import error"
+    ).slice(0, 1200),
+  };
+}
 export const maxDuration = 300;
 
 export default async function handler(req: any, res: any) {
@@ -14,6 +33,7 @@ export default async function handler(req: any, res: any) {
           ok: false,
           error: "ROUTER_IMPORT_FAILED",
           route: "jobs",
+          diagnostic: importDiagnostic(error),
         });
       }
 
@@ -30,6 +50,7 @@ export default async function handler(req: any, res: any) {
           ok: false,
           error: "ROUTER_IMPORT_FAILED",
           route: "worker",
+          diagnostic: importDiagnostic(error),
         });
       }
 
