@@ -1,19 +1,57 @@
-import deepWorkApply from "../src/server/vercel-handlers/deep-work-apply";
-import deepWorkJobs from "../src/server/vercel-handlers/deep-work-jobs";
-import deepWorkWorker from "../src/server/vercel-handlers/deep-work-worker";
-
 export const maxDuration = 300;
 
 export default async function handler(req: any, res: any) {
   const route = String(req.query?.__route || "");
 
   switch (route) {
-    case "apply":
-      return deepWorkApply(req, res);
-    case "jobs":
-      return deepWorkJobs(req, res);
-    case "worker":
-      return deepWorkWorker(req, res);
+    case "apply": {
+      let mod;
+      try {
+        mod = await import("../src/server/vercel-handlers/deep-work-apply");
+      } catch (error) {
+        console.error("[deep-work router] import apply failed", error);
+        return res.status(500).json({
+          ok: false,
+          error: "ROUTER_IMPORT_FAILED",
+          route: "apply",
+        });
+      }
+
+      return mod.default(req, res);
+    }
+
+    case "jobs": {
+      let mod;
+      try {
+        mod = await import("../src/server/vercel-handlers/deep-work-jobs");
+      } catch (error) {
+        console.error("[deep-work router] import jobs failed", error);
+        return res.status(500).json({
+          ok: false,
+          error: "ROUTER_IMPORT_FAILED",
+          route: "jobs",
+        });
+      }
+
+      return mod.default(req, res);
+    }
+
+    case "worker": {
+      let mod;
+      try {
+        mod = await import("../src/server/vercel-handlers/deep-work-worker");
+      } catch (error) {
+        console.error("[deep-work router] import worker failed", error);
+        return res.status(500).json({
+          ok: false,
+          error: "ROUTER_IMPORT_FAILED",
+          route: "worker",
+        });
+      }
+
+      return mod.default(req, res);
+    }
+
     default:
       return res.status(404).json({
         ok: false,
