@@ -26,7 +26,7 @@ export default async function handler(req: any, res: any) {
     case "audit": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/manuscript-audit");
+        mod = await import("../src/server/vercel-handlers/manuscript-audit.js");
       } catch (error) {
         console.error("[refinery router] import audit failed", error);
         return res.status(500).json({
@@ -43,7 +43,7 @@ export default async function handler(req: any, res: any) {
     case "audit-jobs": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/manuscript-audit-jobs");
+        mod = await import("../src/server/vercel-handlers/manuscript-audit-jobs.js");
       } catch (error) {
         console.error("[refinery router] import audit-jobs failed", error);
         return res.status(500).json({
@@ -60,7 +60,7 @@ export default async function handler(req: any, res: any) {
     case "refinement-apply": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/refinement-apply");
+        mod = await import("../src/server/vercel-handlers/refinement-apply.js");
       } catch (error) {
         console.error("[refinery router] import refinement-apply failed", error);
         return res.status(500).json({
@@ -77,7 +77,7 @@ export default async function handler(req: any, res: any) {
     case "refinement-jobs": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/refinement-jobs");
+        mod = await import("../src/server/vercel-handlers/refinement-jobs.js");
       } catch (error) {
         console.error("[refinery router] import refinement-jobs failed", error);
         return res.status(500).json({
@@ -94,7 +94,7 @@ export default async function handler(req: any, res: any) {
     case "refinement-worker": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/refinement-worker");
+        mod = await import("../src/server/vercel-handlers/refinement-worker.js");
       } catch (error) {
         console.error("[refinery router] import refinement-worker failed", error);
         return res.status(500).json({
@@ -111,7 +111,7 @@ export default async function handler(req: any, res: any) {
     case "refinery-worker": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/refinery-worker");
+        mod = await import("../src/server/vercel-handlers/refinery-worker.js");
       } catch (error) {
         console.error("[refinery router] import refinery-worker failed", error);
         return res.status(500).json({

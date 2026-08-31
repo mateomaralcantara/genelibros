@@ -26,7 +26,7 @@ export default async function handler(req: any, res: any) {
     case "jobs": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/research-jobs");
+        mod = await import("../src/server/vercel-handlers/research-jobs.js");
       } catch (error) {
         console.error("[research router] import jobs failed", error);
         return res.status(500).json({
@@ -43,7 +43,7 @@ export default async function handler(req: any, res: any) {
     case "worker": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/research-worker");
+        mod = await import("../src/server/vercel-handlers/research-worker.js");
       } catch (error) {
         console.error("[research router] import worker failed", error);
         return res.status(500).json({

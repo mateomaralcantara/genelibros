@@ -26,7 +26,7 @@ export default async function handler(req: any, res: any) {
     case "apply": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/deep-work-apply");
+        mod = await import("../src/server/vercel-handlers/deep-work-apply.js");
       } catch (error) {
         console.error("[deep-work router] import apply failed", error);
         return res.status(500).json({
@@ -43,7 +43,7 @@ export default async function handler(req: any, res: any) {
     case "jobs": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/deep-work-jobs");
+        mod = await import("../src/server/vercel-handlers/deep-work-jobs.js");
       } catch (error) {
         console.error("[deep-work router] import jobs failed", error);
         return res.status(500).json({
@@ -60,7 +60,7 @@ export default async function handler(req: any, res: any) {
     case "worker": {
       let mod;
       try {
-        mod = await import("../src/server/vercel-handlers/deep-work-worker");
+        mod = await import("../src/server/vercel-handlers/deep-work-worker.js");
       } catch (error) {
         console.error("[deep-work router] import worker failed", error);
         return res.status(500).json({
