@@ -29,7 +29,7 @@ import {
   sourceFromManualUrl,
   verifyClaims,
   resolveBlockingResearchGaps
-} from "../../server/research-intelligence-runtime";
+} from "../../server/research-intelligence-runtime.js";
 
 export const maxDuration = 300;
 const SUPABASE_URL=process.env.SUPABASE_URL||"";

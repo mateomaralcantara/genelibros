@@ -1,23 +1,23 @@
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { manuscriptDeterministicMetrics } from "../../lib/refinery/metrics";
+import { manuscriptDeterministicMetrics } from "../../lib/refinery/metrics.js";
 import type {
   ManuscriptChapterAudit,
   ManuscriptChapterInput,
-} from "../../lib/refinery/types";
+} from "../../lib/refinery/types.js";
 import type {
   RefinementJobResult,
   RefinementPlanItem,
-} from "../../lib/refinery-execution/types";
+} from "../../lib/refinery-execution/types.js";
 import {
   auditGlobalManuscriptStep,
   auditSingleChapterStep,
-} from "../../server/refinery-runtime";
+} from "../../server/refinery-runtime.js";
 import {
   buildRefinementPlan,
   evaluateEditorialDelta,
   refineChapterStep,
-} from "../../server/refinery-execution-runtime";
+} from "../../server/refinery-execution-runtime.js";
 
 export const maxDuration = 300;
 

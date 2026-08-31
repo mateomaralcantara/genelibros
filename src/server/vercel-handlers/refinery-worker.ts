@@ -2,13 +2,13 @@ import { createClient } from "@supabase/supabase-js";
 import {
   auditGlobalManuscriptStep,
   auditSingleChapterStep,
-} from "../../server/refinery-runtime";
-import { manuscriptDeterministicMetrics, wordCount } from "../../lib/refinery/metrics";
+} from "../../server/refinery-runtime.js";
+import { manuscriptDeterministicMetrics, wordCount } from "../../lib/refinery/metrics.js";
 import type {
   ManuscriptAuditMode,
   ManuscriptChapterAudit,
   ManuscriptChapterInput,
-} from "../../lib/refinery/types";
+} from "../../lib/refinery/types.js";
 
 export const maxDuration = 300;
 

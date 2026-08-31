@@ -2,7 +2,7 @@ import type {
   ChapterOverlap,
   DeterministicChapterMetrics,
   ManuscriptChapterInput,
-} from "./types";
+} from "./types.js";
 
 const STOP_WORDS = new Set([
   "para", "como", "pero", "porque", "desde", "hasta", "sobre", "entre",

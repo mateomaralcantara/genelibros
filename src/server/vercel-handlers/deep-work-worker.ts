@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import type { DeepWorkDepth, DeepWorkResult, DeepWorkStep } from "../../lib/deep-work/types";
+import type { DeepWorkDepth, DeepWorkResult, DeepWorkStep } from "../../lib/deep-work/types.js";
 import {
   criticCouncilStep,
   deepContextStep,
@@ -10,7 +10,7 @@ import {
   deepQualityStep,
   repairStep,
   synthesisStep,
-} from "../../server/deep-work-runtime";
+} from "../../server/deep-work-runtime.js";
 
 export const maxDuration = 300;
 type AnyRow = Record<string, any>;

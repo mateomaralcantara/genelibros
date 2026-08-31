@@ -1,10 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
-import { wordCount } from "../lib/refinery/metrics";
+import { wordCount } from "../lib/refinery/metrics.js";
 import type {
   ManuscriptChapterAudit,
   ManuscriptChapterInput,
   ManuscriptGlobalAudit,
-} from "../lib/refinery/types";
+} from "../lib/refinery/types.js";
 import type {
   EditorialDelta,
   RefinementAction,
@@ -12,7 +12,7 @@ import type {
   RefinementMode,
   RefinementPlanItem,
   RefinementResearchGap,
-} from "../lib/refinery-execution/types";
+} from "../lib/refinery-execution/types.js";
 
 type AnyRow = Record<string, any>;
 

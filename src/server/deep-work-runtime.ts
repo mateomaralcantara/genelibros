@@ -9,7 +9,7 @@ import type {
   DeepWorkPlan,
   DeepWorkUsage,
   DraftCouncilResult,
-} from "../lib/deep-work/types";
+} from "../lib/deep-work/types.js";
 
 type AnyRow = Record<string, any>;
 

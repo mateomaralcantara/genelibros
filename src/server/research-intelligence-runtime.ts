@@ -13,7 +13,7 @@ import type {
   ResearchSource,
   ResearchUsage,
   SourceClass,
-} from "../lib/research-intelligence/types";
+} from "../lib/research-intelligence/types.js";
 
 type AnyRow = Record<string, any>;
 const MODEL = process.env.RESEARCH_DEEP_MODEL || process.env.REFINERY_DEEP_MODEL || process.env.OS4_DEEP_MODEL || "gemini-3.6-flash";

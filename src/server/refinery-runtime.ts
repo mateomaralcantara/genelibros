@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { manuscriptDeterministicMetrics, wordCount } from "../lib/refinery/metrics";
+import { manuscriptDeterministicMetrics, wordCount } from "../lib/refinery/metrics.js";
 import type {
   ChapterAuditScores,
   ChapterOverlap,
@@ -9,7 +9,7 @@ import type {
   ManuscriptChapterInput,
   ManuscriptGlobalAudit,
   ManuscriptGlobalScores,
-} from "../lib/refinery/types";
+} from "../lib/refinery/types.js";
 
 type AnyRow = Record<string, any>;
 
