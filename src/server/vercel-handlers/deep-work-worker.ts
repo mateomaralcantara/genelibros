@@ -106,6 +106,273 @@ async function loadNeighbor(s: ReturnType<typeof serviceClient>, projectId: stri
   if (error) throw error;
   return data || null;
 }
+async function loadResearchContext(
+  s: ReturnType<typeof serviceClient>,
+  projectId: string,
+  chapterNumber: number,
+) {
+  const { data, error } = await s
+    .from("research_dossiers")
+    .select(
+      "id,topic,coverage_score,evidence_score,factual_confidence_score,ready_for_writing,result,completed_at"
+    )
+    .eq("project_id", projectId)
+    .eq("chapter_number", chapterNumber)
+    .eq("ready_for_writing", true)
+    .order("completed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  const payload =
+    data.result && typeof data.result === "object"
+      ? (data.result as AnyRow)
+      : {};
+
+  const claims = (
+    Array.isArray(payload.claims)
+      ? payload.claims
+      : []
+  )
+    .filter(
+      (claim: AnyRow) =>
+        clean(claim.status) === "VERIFIED" &&
+        Boolean(claim.citationReady)
+    )
+    .sort(
+      (a: AnyRow, b: AnyRow) =>
+        Number(b.confidenceScore || 0) -
+        Number(a.confidenceScore || 0)
+    )
+    .slice(0, 12)
+    .map((claim: AnyRow) => ({
+      id: clean(claim.id),
+      claim: clean(claim.claim),
+      confidenceScore: Number(
+        claim.confidenceScore || 0
+      ),
+      sourceIds: Array.isArray(claim.sourceIds)
+        ? claim.sourceIds.map(clean).filter(Boolean)
+        : [],
+      evidenceIds: Array.isArray(claim.evidenceIds)
+        ? claim.evidenceIds.map(clean).filter(Boolean)
+        : [],
+    }));
+
+  const requiredSourceIds =
+    new Set<string>();
+
+  for (const claim of claims) {
+    for (const sourceId of claim.sourceIds) {
+      requiredSourceIds.add(sourceId);
+    }
+  }
+
+  const sources = (
+    Array.isArray(payload.sources)
+      ? payload.sources
+      : []
+  )
+    .filter(
+      (source: AnyRow) =>
+        requiredSourceIds.has(
+          clean(source.id)
+        )
+    )
+    .map((source: AnyRow) => ({
+      id: clean(source.id),
+      title: clean(source.title),
+      publisher: clean(source.publisher),
+      url: clean(source.url),
+      sourceClass: clean(source.sourceClass),
+      credibilityScore: Number(
+        source.credibilityScore || 0
+      ),
+    }));
+
+  const openGaps = (
+    Array.isArray(payload.gaps)
+      ? payload.gaps
+      : []
+  )
+    .filter(
+      (gap: AnyRow) =>
+        ["CRITICAL", "HIGH", "MEDIUM"].includes(
+          clean(gap.severity)
+        )
+    )
+    .slice(0, 12)
+    .map((gap: AnyRow) => ({
+      severity: clean(gap.severity),
+      gap: clean(gap.gap),
+    }));
+
+  return {
+    dossierId: clean(data.id),
+
+    topic:
+      clean(data.topic),
+
+    coverageScore:
+      Number(data.coverage_score || 0),
+
+    evidenceScore:
+      Number(data.evidence_score || 0),
+
+    factualConfidenceScore:
+      Number(
+        data.factual_confidence_score || 0
+      ),
+
+    claims,
+    sources,
+    openGaps,
+
+    writingInstructions: [],
+
+    prohibitedClaims:
+      Array.isArray(payload.prohibitedClaims)
+        ? payload.prohibitedClaims
+            .map(clean)
+            .filter(Boolean)
+            .slice(0, 12)
+        : [],
+  };
+}
+
+
+function countCandidateWords(text: string) {
+  const value = clean(text);
+  if (!value) return 0;
+
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .length;
+}
+
+function detectResearchProvenanceViolations(
+  research: AnyRow | null | undefined,
+  candidate: string
+) {
+  const claims =
+    research && Array.isArray(research.claims)
+      ? research.claims
+      : [];
+
+  const candidateLower = clean(candidate).toLowerCase();
+
+  const provenanceMarkers = [
+    "reacción de la administración",
+    "reaccion de la administracion",
+  ];
+
+  const violations: string[] = [];
+
+  for (const row of claims) {
+    const claim = clean(row && row.claim);
+    const claimLower = claim.toLowerCase();
+
+    if (
+      !provenanceMarkers.some((marker) =>
+        claimLower.includes(marker)
+      )
+    ) {
+      continue;
+    }
+
+    const numericTokens = Array.from(
+      new Set(
+        (
+          claim.match(
+            /(?:US\$|RD\$)?\s?\d[\d.,]*(?:\s?(?:%|MWp?|MW|GWh))?/gi
+          ) || []
+        )
+          .map((value) => clean(value))
+          .filter((value) => value.length >= 3)
+      )
+    );
+
+    if (numericTokens.length < 2) {
+      continue;
+    }
+
+    const hits = numericTokens.filter((token) =>
+      candidateLower.includes(token.toLowerCase())
+    ).length;
+
+    const provenancePresent =
+      provenanceMarkers.some((marker) =>
+        candidateLower.includes(marker)
+      );
+
+    if (
+      hits >= Math.min(3, numericTokens.length) &&
+      !provenancePresent
+    ) {
+      violations.push(
+        `PROVENANCE ${clean(row && row.id) || "research-claim"}: ` +
+        `el candidato reutiliza ${hits} datos cuantitativos de un claim ` +
+        `atribuido pero eliminó la atribución "reacción de la administración".`
+      );
+    }
+  }
+
+  return violations;
+}
+function researchDirective(
+  research: AnyRow | null | undefined
+) {
+  if (!research) return "";
+
+  const claims =
+    Array.isArray(research.claims)
+      ? research.claims
+      : [];
+
+  const gaps =
+    Array.isArray(research.openGaps)
+      ? research.openGaps
+      : [];
+
+  return [
+    "RESEARCH DOSSIER CERTIFICADO: " +
+      clean(research.dossierId),
+
+    "REGLA FACTUAL ESTRICTA: para datos, cifras, fechas, instituciones, costos, porcentajes y relaciones causales, utiliza únicamente claims VERIFIED + citationReady de este ledger. El capítulo original es material editorial y de continuidad, NO autoridad factual. Si un hecho del capítulo original no aparece en el ledger certificado, no lo preserves ni lo presentes como hecho.",
+
+    "CLAIMS VERIFIED + CITATION READY:",
+
+    ...claims.map(
+      (claim: AnyRow, index: number) =>
+        `${index + 1}. ${clean(claim.claim)} ` +
+        `[sources: ${
+          Array.isArray(claim.sourceIds)
+            ? claim.sourceIds.join(",")
+            : ""
+        }]`
+    ),
+
+    gaps.length
+      ? "GAPS ABIERTOS — NO convertirlos en afirmaciones completas:"
+      : "",
+
+    ...gaps.map(
+      (gap: AnyRow) =>
+        `${clean(gap.severity)}: ${clean(gap.gap)}`
+    ),
+
+    "No inventes la parte faltante de una serie temporal. Si el dossier posee únicamente años puntuales, redacta únicamente esos años.",
+
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 12000);
+}
+
+
 function assertSourceUnchanged(result: AnyRow, target: AnyRow, operation: string) {
   if (operation === "GENERATE" || !target?.id) return;
   if (result.sourceHash && hash(String(target.content || "")) !== result.sourceHash) {
@@ -135,6 +402,11 @@ async function processJob(s: ReturnType<typeof serviceClient>, job: AnyRow, work
     result.sourceHash = hash(String(target.content || ""));
     result.depth = depth;
     result.objective = job.objective;
+    result.researchContext = await loadResearchContext(
+      s,
+      job.project_id,
+      job.chapter_number
+    );
     result.targetWords = job.target_words;
     result.title = clean(target.title) || `Capítulo ${job.chapter_number}`;
     result.drafts = [];
@@ -145,7 +417,19 @@ async function processJob(s: ReturnType<typeof serviceClient>, job: AnyRow, work
   }
 
   if (step === "PLAN") {
-    const out = await deepPlanStep({ depth, operation: job.operation, objective: job.objective, targetWords: job.target_words, title: result.title, sourceContent: String(target.content || "") });
+    const out = await deepPlanStep({
+      depth,
+      operation: job.operation,
+      objective: [
+        job.objective,
+        researchDirective(result.researchContext),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      targetWords: job.target_words,
+      title: result.title,
+      sourceContent: String(target.content || ""),
+    });
     result.plan = out.plan;
     result.usage = addUsage(result.usage, out.usage);
     result.models = { ...(result.models || {}), plan: out.model };
@@ -165,7 +449,13 @@ async function processJob(s: ReturnType<typeof serviceClient>, job: AnyRow, work
       sourceContent: String(target.content || ""),
       priorContext: prior ? `${prior.title}\n${prior.content}` : "",
       nextContext: nextChapter ? `${nextChapter.title}\n${nextChapter.content}` : "",
-      projectContext: { title: project.title, genre: project.genre, audience: project.target_audience, description: project.description },
+      projectContext: {
+        title: project.title,
+        genre: project.genre,
+        audience: project.target_audience,
+        description: project.description,
+        research: result.researchContext || null,
+      },
       plan: result.plan,
     });
     result.context = out.context;
@@ -239,6 +529,101 @@ async function processJob(s: ReturnType<typeof serviceClient>, job: AnyRow, work
     if (!result.finalCandidate?.content) throw new Error("11C worker: falta finalCandidate.");
     const out = await deepQualityStep({ depth, title: result.title, sourceContent: String(target.content || ""), candidate: result.finalCandidate, context: result.context });
     let quality = out.quality;
+
+    const targetWords = Math.max(
+      300,
+      Number(job.target_words || 0)
+    );
+
+    const candidateWordCount = countCandidateWords(
+      result.finalCandidate.content
+    );
+
+    const minWords = Math.floor(targetWords * 0.92);
+    const maxWords = Math.ceil(targetWords * 1.08);
+
+    if (
+      candidateWordCount < minWords ||
+      candidateWordCount > maxWords
+    ) {
+      const repair =
+        `WORD_COUNT: candidato=${candidateWordCount}; ` +
+        `objetivo=${targetWords}; rango obligatorio=${minWords}-${maxWords}. ` +
+        `Ajusta longitud sin añadir relleno ni eliminar evidencia necesaria.`;
+
+      quality = {
+        ...quality,
+
+        overallScore: Math.min(
+          Number(quality.overallScore ?? 10),
+          8.4
+        ),
+
+        verdict: "REPAIR",
+
+        scores: {
+          ...quality.scores,
+
+          publishability: Math.min(
+            Number(quality.scores.publishability ?? 10),
+            7
+          ),
+        },
+
+        weaknesses: [
+          ...(quality.weaknesses || []),
+          repair,
+        ],
+
+        requiredRepairs: [
+          ...(quality.requiredRepairs || []),
+          repair,
+        ],
+      };
+    }
+
+    const provenanceRepairs =
+      detectResearchProvenanceViolations(
+        result.researchContext,
+        result.finalCandidate.content
+      );
+
+    if (provenanceRepairs.length) {
+      quality = {
+        ...quality,
+
+        overallScore: Math.min(
+          Number(quality.overallScore ?? 10),
+          8.4
+        ),
+
+        verdict: "REPAIR",
+
+        scores: {
+          ...quality.scores,
+
+          factualDiscipline: Math.min(
+            Number(quality.scores.factualDiscipline ?? 10),
+            6
+          ),
+
+          publishability: Math.min(
+            Number(quality.scores.publishability ?? 10),
+            7
+          ),
+        },
+
+        weaknesses: [
+          ...(quality.weaknesses || []),
+          ...provenanceRepairs,
+        ],
+
+        requiredRepairs: [
+          ...(quality.requiredRepairs || []),
+          ...provenanceRepairs,
+        ],
+      };
+    }
     if (quality.unsupportedNewClaims.length) quality = { ...quality, verdict: "REPAIR" };
     if (quality.overallScore < policy.threshold && quality.verdict === "APPROVED") quality = { ...quality, verdict: "REPAIR" };
     const canRepair = quality.verdict === "REPAIR" && Number(result.repairAttempts || 0) < policy.maxRepairAttempts;

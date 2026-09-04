@@ -37,7 +37,7 @@ function modelFor(depth: DeepWorkDepth) {
     process.env.DEEP_DEEP_MODEL ||
     process.env.REFINERY_DEEP_MODEL ||
     process.env.OS4_DEEP_MODEL ||
-    "gemini-2.5-pro"
+    "gemini-3.1-pro-preview"
   );
 }
 
@@ -226,7 +226,7 @@ REGLA DE INTEGRIDAD:
 - No inventes fuentes, estadísticas, fechas, nombres, citas ni hechos.
 - No conviertas inferencias en hechos.
 - Si el material fuente no respalda un dato, conserva la incertidumbre o elimina el dato.
-- No añadas claims factuales nuevos que no estén en SOURCE/CONTEXT.
+- Cuando exista Research certificado en CONTEXT, SOURCE es material editorial y NO autoridad factual: cifras, fechas, instituciones, costos, porcentajes y relaciones causales deben provenir exclusivamente de claims VERIFIED + citationReady del Research.
 - Puedes mejorar estructura, claridad, profundidad conceptual y razonamiento sin fabricar evidencia.
 `;
 
@@ -265,7 +265,7 @@ Devuelve JSON:
   const plan: DeepWorkPlan = {
     objective: clean(data.objective) || input.objective,
     operation: input.operation,
-    targetWords: Math.max(300, Number(data.targetWords || input.targetWords) || input.targetWords),
+    targetWords: Math.max(300, input.targetWords),
     constraints: stringArray(data.constraints),
     successCriteria: stringArray(data.successCriteria),
     passes: stringArray(data.passes),
@@ -287,7 +287,7 @@ export async function deepContextStep(input: {
   const { data, usage, model } = await generateJson({
     depth: input.depth,
     temperature: 0.25,
-    system: `Eres LONG_CONTEXT_ANALYST. Extraes dependencias, hechos y reglas de continuidad antes de redactar. ${NO_FABRICATION}`,
+    system: `Eres LONG_CONTEXT_ANALYST. Extraes dependencias editoriales y reglas de continuidad antes de redactar. Si PROJECT_CONTEXT.research existe, factsToPreserve solo puede contener hechos respaldados por sus claims VERIFIED + citationReady; TARGET_SOURCE es material editorial y no certifica hechos. Si un claim certificado contiene atribución, procedencia, reserva o limitación, esa atribución debe conservarse y nunca transformarse en una afirmación factual directa. ${NO_FABRICATION}`,
     prompt: `
 PROJECT_CONTEXT:
 ${JSON.stringify(input.projectContext).slice(0, 20000)}
@@ -316,11 +316,29 @@ Devuelve JSON:
  "omissions":[...]
 }`,
   });
+  const certifiedResearchClaims = (() => {
+    const research =
+      input.projectContext &&
+      typeof input.projectContext.research === "object"
+        ? (input.projectContext.research as AnyRow)
+        : null;
+
+    const rawClaims =
+      research && Array.isArray(research.claims)
+        ? research.claims
+        : [];
+
+    return rawClaims
+      .map((claim: AnyRow) => clean(claim && claim.claim))
+      .filter(Boolean)
+      .slice(0, 40);
+  })();
+
   const context: DeepContextAnalysis = {
     chapterPurpose: clean(data.chapterPurpose),
     priorDependencies: stringArray(data.priorDependencies),
     futureDependencies: stringArray(data.futureDependencies),
-    factsToPreserve: stringArray(data.factsToPreserve, 40),
+    factsToPreserve: certifiedResearchClaims.length ? certifiedResearchClaims : stringArray(data.factsToPreserve, 40),
     terminology: stringArray(data.terminology, 40),
     voiceRules: stringArray(data.voiceRules),
     continuityRisks: stringArray(data.continuityRisks),
@@ -363,7 +381,8 @@ SOURCE:
 ${input.sourceContent.slice(0, 75000)}
 
 REGLAS:
-- Si operation=IMPROVE o REWRITE, preserva significado, hechos respaldados, nombres y continuidad.
+- Si operation=IMPROVE o REWRITE, preserva significado editorial, nombres, voz y continuidad. SOURCE no certifica hechos: cuando CONTEXT_ANALYSIS contenga Research, toda cifra, fecha, institución, costo, porcentaje y relación causal debe estar respaldada por los claims certificados del Research.
+- Si un claim certificado contiene atribución o procedencia (por ejemplo, «la reacción de la administración afirma...»), conserva esa procedencia explícitamente. No conviertas una declaración atribuida en una determinación independiente.
 - Si operation=GENERATE, usa solo hechos presentes en contexto; no rellenes con datos inventados.
 - El contenido debe ser un capítulo terminado, no notas ni esquema.
 
@@ -460,7 +479,7 @@ export async function synthesisStep(input: {
     depth: input.depth,
     temperature: 0.4,
     maxOutputTokens: Math.min(32000, Math.max(10000, Math.floor(input.targetWords * 2.5))),
-    system: `Eres SYNTHESIS_EDITOR. Fusionas lo mejor de candidatos independientes sin crear un collage incoherente. ${NO_FABRICATION}`,
+    system: `Eres SYNTHESIS_EDITOR. Fusionas lo mejor de candidatos independientes sin crear un collage incoherente. Las atribuciones, reservas y procedencia de los claims certificados son parte inseparable del hecho: no las suprimas ni las conviertas en afirmaciones directas. ${NO_FABRICATION}`,
     prompt: `
 CAPÍTULO: ${input.title}
 PLAN: ${JSON.stringify(input.plan)}
@@ -495,36 +514,291 @@ export async function repairStep(input: {
   quality: DeepQualityScore;
   targetWords: number;
 }) {
-  const { data, usage, model } = await generateJson({
-    depth: input.depth,
-    temperature: 0.3,
-    maxOutputTokens: Math.min(32000, Math.max(10000, Math.floor(input.targetWords * 2.5))),
-    system: `Eres REPAIR_AGENT. Corriges únicamente problemas diagnosticados; no introduces claims nuevos. ${NO_FABRICATION}`,
-    prompt: `
-CAPÍTULO: ${input.title}
-SOURCE ORIGINAL:
-${input.sourceContent.slice(0, 50000)}
-CANDIDATE:
-${input.candidate.content.slice(0, 75000)}
-QUALITY_REPORT:
+  // TOKEN_GUARD_V5.2
+  //
+  // REPAIR jamás reinicia PLAN/CONTEXT/DRAFT/CRITIC/SYNTHESIS.
+  // Trabaja exclusivamente sobre el candidato ya sintetizado.
+  //
+  // Si el modelo devuelve una reparación incompleta o fuera de rango,
+  // hacemos un segundo intento LOCAL de REPAIR conservando como fuente
+  // el candidato completo original.
+
+  const model = clean(
+    process.env.DEEP_REPAIR_MODEL ||
+    process.env.RESEARCH_DEEP_MODEL ||
+    process.env.DEEP_FAST_MODEL ||
+    "gemini-3.6-flash"
+  );
+
+  const targetWords = Math.max(
+    300,
+    Number(input.targetWords || 0)
+  );
+
+  const minWords = Math.floor(targetWords * 0.92);
+  const maxWords = Math.ceil(targetWords * 1.08);
+
+  const preferredMin = Math.round(targetWords * 0.98);
+  const preferredMax = Math.round(targetWords * 1.02);
+
+  const countWords = (value: string) =>
+    clean(value)
+      .split(/\s+/)
+      .filter(Boolean)
+      .length;
+
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTokens = 0;
+  let calls = 0;
+
+  let lastWordCount = 0;
+  let lastText = "";
+
+  const maxAttempts = 2;
+
+  for (
+    let attempt = 1;
+    attempt <= maxAttempts;
+    attempt++
+  ) {
+    const previousFailure =
+      attempt > 1
+        ? `
+ATENCIÓN — EL INTENTO ANTERIOR FALLÓ.
+
+La respuesta anterior tuvo ${lastWordCount} palabras
+y por tanto NO era un capítulo completo.
+
+NO resumas.
+NO contestes con instrucciones.
+NO devuelvas un fragmento.
+NO expliques qué cambios harías.
+
+Debes volver a trabajar DESDE EL CANDIDATO COMPLETO ORIGINAL
+que aparece más abajo.
+`
+        : "";
+
+    const response = await aiClient().models.generateContent({
+      model,
+
+      contents: [
+        {
+          role: "user",
+
+          parts: [
+            {
+              text: `
+CAPÍTULO:
+${input.title}
+
+OBJETIVO CENTRAL:
+Entrega una versión editorialmente reparada del CAPÍTULO COMPLETO.
+
+OBJETIVO DE LONGITUD:
+${targetWords} palabras.
+
+RANGO DURO OBLIGATORIO:
+${minWords}-${maxWords} palabras.
+
+RANGO PREFERIDO:
+${preferredMin}-${preferredMax} palabras.
+
+${previousFailure}
+
+QUALITY REPORT:
 ${JSON.stringify(input.quality)}
 
-Aplica todas las reparaciones requeridas y conserva lo que ya funciona.
-Devuelve JSON:
-{"content":"texto reparado completo","rationale":"...","strengths":[...],"risks":[...]}
-`,
-  });
-  const draft: DeepDraft = {
-    label: "REPAIR",
-    content: clean(data.content),
-    rationale: clean(data.rationale),
-    strengths: stringArray(data.strengths),
-    risks: stringArray(data.risks),
-  };
-  if (draft.content.length < 500) throw new Error("Deep Work: reparación insuficiente.");
-  return { draft, usage, model };
-}
+CANDIDATO COMPLETO QUE DEBES EDITAR:
+<<<BEGIN_FULL_CANDIDATE>>>
+${input.candidate.content.slice(0, 75000)}
+<<<END_FULL_CANDIDATE>>>
 
+TAREA:
+
+Repara EXCLUSIVAMENTE los defectos señalados
+en QUALITY REPORT.
+
+REGLA CRÍTICA:
+
+Tu respuesta debe seguir siendo el CAPÍTULO COMPLETO.
+
+No estás escribiendo:
+
+- un resumen;
+- una sinopsis;
+- un diagnóstico;
+- un plan;
+- una lista de cambios;
+- un fragmento;
+- una muestra;
+- una explicación editorial.
+
+Estás editando el documento completo existente.
+
+Si el defecto incluye WORD_COUNT y el candidato
+es demasiado largo:
+
+1. comprime editorialmente;
+2. elimina redundancia;
+3. fusiona reiteraciones;
+4. reduce explicaciones innecesariamente extensas;
+5. conserva la progresión argumental;
+6. conserva la arquitectura narrativa;
+7. conserva tesis y conclusiones necesarias;
+8. conserva evidencia sustantiva.
+
+PROHIBIDO PARA REDUCIR LONGITUD:
+
+- eliminar hechos esenciales;
+- eliminar cifras necesarias;
+- eliminar atribuciones;
+- eliminar procedencia;
+- eliminar reservas o cautelas factuales;
+- transformar afirmaciones atribuidas
+  en afirmaciones factuales directas;
+- inventar hechos;
+- inventar fuentes;
+- añadir relleno.
+
+CONTROL DE SALIDA:
+
+Antes de responder, comprueba internamente
+que el capítulo completo quede entre
+${minWords} y ${maxWords} palabras.
+
+Apunta preferiblemente a
+${preferredMin}-${preferredMax} palabras.
+
+Devuelve EXCLUSIVAMENTE
+el capítulo completo reparado.
+
+No devuelvas JSON.
+No uses fences de código.
+No escribas comentarios editoriales.
+No escribas "versión reparada".
+No escribas "a continuación".
+No escribas una explicación previa.
+No escribas una explicación posterior.
+
+La primera palabra de tu respuesta
+debe pertenecer directamente al capítulo.
+`
+            }
+          ]
+        }
+      ],
+
+      config: {
+        systemInstruction:
+          "Eres COMPRESS_REPAIR_EDITOR V5.2 de Genelibros. " +
+          "Editas documentos completos, nunca produces resúmenes ni comentarios. " +
+          "Debes conservar literalmente cuando corresponda atribuciones, " +
+          "procedencia, reservas, cifras y relaciones factuales certificadas. " +
+          "Tu salida es siempre el capítulo completo reparado como texto plano.",
+
+        temperature: 0.1,
+
+        maxOutputTokens: Math.min(
+          16000,
+          Math.max(
+            8000,
+            Math.ceil(targetWords * 3.2)
+          )
+        )
+      }
+    });
+
+    calls += 1;
+
+    const rawText =
+      typeof (response as any)?.text === "function"
+        ? clean((response as any).text())
+        : clean((response as any)?.text);
+
+    const u: AnyRow =
+      (response as any)?.usageMetadata ||
+      (response as any)?.usage ||
+      {};
+
+    const inputTokens =
+      Number(
+        u.promptTokenCount ||
+        u.inputTokens ||
+        0
+      ) || 0;
+
+    const outputTokens =
+      Number(
+        u.candidatesTokenCount ||
+        u.outputTokens ||
+        0
+      ) || 0;
+
+    const callTotalTokens =
+      Number(
+        u.totalTokenCount ||
+        u.totalTokens ||
+        inputTokens + outputTokens
+      ) || 0;
+
+    totalInputTokens += inputTokens;
+    totalOutputTokens += outputTokens;
+    totalTokens += callTotalTokens;
+
+    if (!rawText) {
+      lastText = "";
+      lastWordCount = 0;
+      continue;
+    }
+
+    lastText = rawText;
+    lastWordCount = countWords(rawText);
+
+    if (
+      lastWordCount >= minWords &&
+      lastWordCount <= maxWords
+    ) {
+      const draft: DeepDraft = {
+        label: "REPAIR",
+        content: rawText,
+        rationale:
+          `V5.2 deterministic full-document repair; ` +
+          `attempt=${attempt}; words=${lastWordCount}`,
+        strengths: [],
+        risks: []
+      };
+
+      return {
+        draft,
+
+        usage: {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          totalTokens,
+          calls
+        },
+
+        model
+      };
+    }
+  }
+
+  if (!lastText) {
+    throw new Error(
+      `Deep Work V5.2: reparación vacía después de ${maxAttempts} intentos.`
+    );
+  }
+
+  throw new Error(
+    `Deep Work V5.2: reparación fuera de rango después de ` +
+    `${maxAttempts} intentos ` +
+    `(${lastWordCount}; requerido ${minWords}-${maxWords}); ` +
+    `model=${model}; ` +
+    `preview=${JSON.stringify(lastText.slice(0, 900))}`
+  );
+}
 export async function deepQualityStep(input: {
   depth: DeepWorkDepth;
   title: string;
@@ -536,7 +810,7 @@ export async function deepQualityStep(input: {
     depth: input.depth,
     temperature: 0.15,
     maxOutputTokens: 7000,
-    system: `Eres DEEP_QUALITY_JUDGE. Juzgas con estándar editorial alto y detectas claims nuevos no respaldados. ${NO_FABRICATION}`,
+    system: `Eres DEEP_QUALITY_JUDGE. Juzgas con estándar editorial alto y detectas claims nuevos no respaldados. Cuando CONTEXT incluya Research certificado, valida la factualidad contra ese ledger: SOURCE ORIGINAL no certifica hechos. Cualquier cifra, fecha, institución, costo, porcentaje o relación causal que no pueda vincularse al Research debe reportarse en unsupportedNewClaims. La pérdida de atribución o procedencia de un claim certificado es una violación factual aunque las cifras sean correctas. ${NO_FABRICATION}`,
     prompt: `
 CAPÍTULO: ${input.title}
 SOURCE ORIGINAL:
@@ -588,3 +862,4 @@ export function deepModePolicy(depth: DeepWorkDepth) {
   if (depth === "SUPREME") return { draftCount: 3, maxRepairAttempts: 2, threshold: 9.3, useContext: true, useCouncil: true };
   return { draftCount: 3, maxRepairAttempts: 3, threshold: 9.5, useContext: true, useCouncil: true };
 }
+
