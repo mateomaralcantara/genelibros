@@ -1,0 +1,370 @@
+export async function repairStep(input: {
+  depth: DeepWorkDepth;
+  title: string;
+  sourceContent: string;
+  candidate: DeepDraft;
+  quality: DeepQualityScore;
+  targetWords: number;
+  context?: DeepContextAnalysis;
+  researchContext?: AnyRow;
+}) {
+  // TOKEN_GUARD_V5.8
+  // Estrategia principal: PRUNE, DON'T REWRITE.
+  // Si el único problema duro es longitud, Gemini solo ordena oraciones removibles.
+  // El texto final se compone localmente a partir del candidato original.
+
+  const primaryModel = clean(process.env.DEEP_REPAIR_MODEL || modelFor(input.depth));
+  const deepModel = clean(modelFor(input.depth));
+  const targetWords = Math.max(300, Number(input.targetWords || 0));
+  const minWords = Math.floor(targetWords * 0.92);
+  const maxWords = Math.ceil(targetWords * 1.08);
+  const preferredMin = Math.max(minWords, Math.floor(targetWords * 0.98));
+  const preferredMax = Math.min(maxWords, Math.ceil(targetWords * 1.02));
+
+  const countWords = (value: string) => clean(value).split(/\s+/).filter(Boolean).length;
+  const sanitizeOutput = (value: string) =>
+    clean(value)
+      .replace(/^```(?:json|markdown|text)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .replace(/<<<BEGIN_[A-Z_]+>>>/gi, "")
+      .replace(/<<<END_[A-Z_]+>>>/gi, "")
+      .trim();
+
+  const normalize = (value: string) =>
+    clean(value)
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[–—−]/g, "-")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const candidateText = sanitizeOutput(input.candidate.content);
+  const candidateWords = countWords(candidateText);
+
+  const factsToPreserve = Array.isArray(input.context?.factsToPreserve)
+    ? input.context!.factsToPreserve.map(clean).filter(Boolean).slice(0, 48)
+    : [];
+  const terminology = Array.isArray(input.context?.terminology)
+    ? input.context!.terminology.map(clean).filter(Boolean).slice(0, 48)
+    : [];
+  const certifiedClaims = Array.isArray(input.researchContext?.claims)
+    ? input.researchContext.claims.map((row: AnyRow) => clean(row?.claim)).filter(Boolean).slice(0, 28)
+    : [];
+
+  const qualityRepair = JSON.stringify({
+    weaknesses: input.quality?.weaknesses || [],
+    requiredRepairs: input.quality?.requiredRepairs || [],
+    unsupportedNewClaims: input.quality?.unsupportedNewClaims || [],
+  });
+
+  const hardAnchorPatterns = [
+    /\b(?:Ley|Decreto)\s+\d+(?:-\d+)?\b/gi,
+    /\b\d+(?:[.,]\d+)?\s*[–—-]\s*\d+(?:[.,]\d+)?\s*%/g,
+    /\b\d+(?:[.,]\d+)?\s*(?:%|MW|MWh|GWh|kWh(?:\s*\/\s*mes)?|US\$|RD\$)\b/gi,
+    /\b(?:OPEX|CAPEX|VAD|CRI|curtailment)\b/gi,
+  ];
+
+  const tokenizeMeaningful = (value: string) =>
+    Array.from(new Set(
+      normalize(value)
+        .replace(/[^a-z0-9%$-]+/g, " ")
+        .split(/\s+/)
+        .filter((token) => token.length >= 5 && !["entre", "sobre", "desde", "hasta", "donde", "sector", "sistema", "energia", "electrica", "dominicano", "dominicana"].includes(token))
+    ));
+
+  const factKeywordSets = [...factsToPreserve, ...certifiedClaims]
+    .map(tokenizeMeaningful)
+    .filter((tokens) => tokens.length >= 2);
+
+  const sentenceHasSemanticFact = (sentence: string) => {
+    const norm = normalize(sentence);
+    return factKeywordSets.some((tokens) => {
+      const matched = tokens.filter((token) => norm.includes(token)).length;
+      return matched >= Math.min(3, Math.max(2, Math.ceil(tokens.length * 0.45)));
+    });
+  };
+
+  const sentenceHasHardAnchor = (sentence: string) => {
+    for (const pattern of hardAnchorPatterns) {
+      pattern.lastIndex = 0;
+      if (pattern.test(sentence)) return true;
+    }
+    return terminology.some((term) => term.length >= 2 && normalize(sentence).includes(normalize(term)));
+  };
+
+  type Unit = {
+    id: string;
+    paragraph: number;
+    order: number;
+    text: string;
+    words: number;
+    protected: boolean;
+    heading: boolean;
+  };
+
+  const units: Unit[] = [];
+  const paragraphs = candidateText.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  let unitSeq = 0;
+
+  for (let p = 0; p < paragraphs.length; p += 1) {
+    const paragraph = paragraphs[p];
+    const paragraphWords = countWords(paragraph);
+    const heading = paragraphWords <= 16 && !/[.!?]$/.test(paragraph);
+    const parts = heading
+      ? [paragraph]
+      : paragraph.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑÜ¿¡0-9“\"(])/u).map((s) => s.trim()).filter(Boolean);
+
+    for (let s = 0; s < parts.length; s += 1) {
+      unitSeq += 1;
+      const text = parts[s];
+      units.push({
+        id: `S${String(unitSeq).padStart(3, "0")}`,
+        paragraph: p,
+        order: s,
+        text,
+        words: countWords(text),
+        heading,
+        protected: heading || sentenceHasHardAnchor(text) || sentenceHasSemanticFact(text),
+      });
+    }
+  }
+
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTokens = 0;
+  let calls = 0;
+  const modelsUsed: string[] = [];
+
+  const generationConfig = (model: string, maxOutputTokens: number) => {
+    const isGemini3 = /^gemini-3(?:\.|[-])/i.test(model);
+    const isGemini25 = /^gemini-2\.5(?:[-]|$)/i.test(model);
+    const thinkingConfig = isGemini3
+      ? { thinkingLevel: "LOW" }
+      : isGemini25
+        ? { thinkingBudget: 768 }
+        : undefined;
+    return {
+      systemInstruction:
+        "Eres PRUNE_RANKER V5.8 de Genelibros. No reescribes prosa. " +
+        "Solo ordenas IDs de oraciones redundantes que pueden eliminarse conservando rigor, causalidad, evidencia, continuidad y voz. " +
+        "Nunca selecciones información factual necesaria, definiciones técnicas, mecanismos causales, leyes, cifras, atribuciones ni conclusiones imprescindibles.",
+      temperature: isGemini3 ? 1.0 : 0.1,
+      maxOutputTokens,
+      ...(thinkingConfig ? { thinkingConfig } : {}),
+    } as any;
+  };
+
+  const callModel = async (args: { model: string; prompt: string; maxOutputTokens: number }) => {
+    const response = await aiClient().models.generateContent({
+      model: args.model,
+      contents: [{ role: "user", parts: [{ text: args.prompt }] }],
+      config: generationConfig(args.model, args.maxOutputTokens),
+    });
+    calls += 1;
+    modelsUsed.push(args.model);
+    const u: AnyRow = (response as any)?.usageMetadata || (response as any)?.usage || {};
+    const inputTokens = Number(u.promptTokenCount || u.inputTokens || 0) || 0;
+    const outputTokens = Number(u.candidatesTokenCount || u.outputTokens || 0) || 0;
+    const callTotalTokens = Number(u.totalTokenCount || u.totalTokens || inputTokens + outputTokens) || 0;
+    totalInputTokens += inputTokens;
+    totalOutputTokens += outputTokens;
+    totalTokens += callTotalTokens;
+    const text = sanitizeOutput(clean((response as any)?.text));
+    if (!text) throw new Error("Deep Work V5.8: el ranker devolvió salida vacía.");
+    return text;
+  };
+
+  const makeDraft = (content: string, rationale: string) => ({
+    draft: {
+      label: "REPAIR",
+      content: sanitizeOutput(content),
+      rationale,
+      strengths: [],
+      risks: [],
+    } as DeepDraft,
+    usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens, calls },
+    model: modelsUsed[modelsUsed.length - 1] || deepModel,
+  });
+
+  const compose = (removed: Set<string>) => {
+    const grouped = new Map<number, Unit[]>();
+    for (const unit of units) {
+      if (removed.has(unit.id)) continue;
+      if (!grouped.has(unit.paragraph)) grouped.set(unit.paragraph, []);
+      grouped.get(unit.paragraph)!.push(unit);
+    }
+    return Array.from(grouped.keys())
+      .sort((a, b) => a - b)
+      .map((p) => grouped.get(p)!.sort((a, b) => a.order - b.order).map((u) => u.text).join(" ").trim())
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+  };
+
+  const parseIds = (raw: string) => {
+    const normalized = raw.trim();
+    let ids: string[] = [];
+    try {
+      const first = normalized.indexOf("[");
+      const last = normalized.lastIndexOf("]");
+      if (first >= 0 && last > first) {
+        const parsed = JSON.parse(normalized.slice(first, last + 1));
+        if (Array.isArray(parsed)) ids = parsed.map((x) => String(x).toUpperCase());
+      }
+    } catch {}
+    if (!ids.length) ids = normalized.match(/S\d{3}/gi)?.map((x) => x.toUpperCase()) || [];
+    return Array.from(new Set(ids));
+  };
+
+  // CASO A: candidato demasiado largo. No se reescribe; se poda determinísticamente.
+  if (candidateWords > maxWords) {
+    const removable = units.filter((unit) => !unit.protected && unit.words >= 4);
+    const protectedWords = units.filter((unit) => unit.protected).reduce((sum, unit) => sum + unit.words, 0);
+    if (protectedWords > maxWords) {
+      throw new Error(`Deep Work V5.8: las unidades protegidas suman ${protectedWords} palabras y exceden el máximo ${maxWords}; requiere estrategia semántica, no poda.`);
+    }
+
+    const removalNeeded = Math.max(0, candidateWords - targetWords);
+    const rankPrompt = `
+CAPÍTULO: ${input.title}
+PALABRAS ACTUALES: ${candidateWords}
+OBJETIVO FINAL: ${targetWords}; RANGO DURO: ${minWords}-${maxWords}; RANGO PREFERIDO: ${preferredMin}-${preferredMax}.
+NECESITAMOS ELIMINAR APROXIMADAMENTE ${removalNeeded} PALABRAS.
+
+QUALITY_REPORT:
+${qualityRepair}
+
+Estas son ÚNICAMENTE las oraciones que el código determinó como removibles. Las frases con anclas factuales/técnicas ya fueron excluidas y no están disponibles para borrar.
+Devuelve un array JSON con TODOS los IDs removibles ordenados desde el más prescindible/redundante hasta el menos prescindible.
+No devuelvas prosa, explicación ni texto reescrito. Solo IDs, por ejemplo: ["S014","S027","S031"].
+Prioriza: repetición, retórica genérica, adjetivación, transiciones infladas, duplicación de una idea ya explicada.
+Penaliza fuertemente la eliminación de: causalidad, definiciones, ejemplos necesarios, secuencia de ciclos, contraste analítico, conclusión de una sección.
+
+ORACIONES REMOVIBLES:
+${removable.map((u) => `${u.id} (${u.words}w): ${u.text}`).join("\n")}
+`;
+
+    const rankedRaw = await callModel({
+      model: primaryModel,
+      prompt: rankPrompt,
+      maxOutputTokens: 2600,
+    });
+    const rankedIds = parseIds(rankedRaw);
+    const removableMap = new Map(removable.map((u) => [u.id, u]));
+    const safeRank = rankedIds.filter((id) => removableMap.has(id));
+
+    // Si el modelo omitió IDs, se anexan los restantes al final. El modelo decide prioridad;
+    // el código decide cuántos borrar y nunca permite caer por debajo del mínimo.
+    for (const unit of removable) {
+      if (!safeRank.includes(unit.id)) safeRank.push(unit.id);
+    }
+
+    const removed = new Set<string>();
+    let currentWords = candidateWords;
+    for (const id of safeRank) {
+      const unit = removableMap.get(id);
+      if (!unit) continue;
+      const after = currentWords - unit.words;
+      if (after < preferredMin) continue;
+      removed.add(id);
+      currentWords = after;
+      if (currentWords <= preferredMax) break;
+    }
+
+    let pruned = compose(removed);
+    let prunedWords = countWords(pruned);
+
+    // Si seguimos por encima del rango duro, hacemos una segunda selección solo sobre
+    // oraciones todavía removibles. Sigue siendo selección de IDs, nunca reescritura.
+    if (prunedWords > maxWords) {
+      const remaining = removable.filter((u) => !removed.has(u.id));
+      const secondRaw = await callModel({
+        model: deepModel,
+        maxOutputTokens: 1800,
+        prompt: `
+El capítulo sigue en ${prunedWords} palabras; debe quedar entre ${minWords}-${maxWords}, ideal ${preferredMin}-${preferredMax}.
+Devuelve SOLO un array JSON de IDs adicionales a eliminar, del más seguro al menos seguro.
+No reescribas nada. No selecciones más palabras de las necesarias.
+
+CANDIDATAS RESTANTES:
+${remaining.map((u) => `${u.id} (${u.words}w): ${u.text}`).join("\n")}
+`,
+      });
+      const secondIds = parseIds(secondRaw).filter((id) => remaining.some((u) => u.id === id));
+      for (const id of secondIds) {
+        const unit = removableMap.get(id);
+        if (!unit || removed.has(id)) continue;
+        const after = prunedWords - unit.words;
+        if (after < minWords) continue;
+        removed.add(id);
+        pruned = compose(removed);
+        prunedWords = countWords(pruned);
+        if (prunedWords <= maxWords) break;
+      }
+    }
+
+    if (prunedWords < minWords || prunedWords > maxWords) {
+      throw new Error(`Deep Work V5.8: poda no alcanzó rango final; source=${candidateWords}; final=${prunedWords}; requerido=${minWords}-${maxWords}; protected=${units.filter((u) => u.protected).length}/${units.length}; removed=${removed.size}.`);
+    }
+
+    return makeDraft(
+      pruned,
+      `V5.8 deterministic sentence pruning; source=${candidateWords}; final=${prunedWords}; removed=${removed.size}; protected=${units.filter((u) => u.protected).length}/${units.length}`
+    );
+  }
+
+  // CASO B: ya está en rango. Aquí sí hay defectos editoriales reales de QUALITY.
+  // Una reparación de calidad puede reescribir, pero su salida solo se acepta si conserva
+  // todas las anclas duras presentes y permanece en el rango del job.
+  const anchorStrings: string[] = [];
+  for (const pattern of hardAnchorPatterns) {
+    pattern.lastIndex = 0;
+    for (const match of candidateText.matchAll(pattern)) anchorStrings.push(clean(match[0]));
+  }
+  for (const term of terminology) {
+    if (normalize(candidateText).includes(normalize(term))) anchorStrings.push(term);
+  }
+  const uniqueAnchors = Array.from(new Map(anchorStrings.map((a) => [normalize(a), a])).values());
+
+  const repairRaw = await callModel({
+    model: deepModel,
+    maxOutputTokens: Math.max(8000, Math.ceil(targetWords * 3.0)),
+    prompt: `
+CAPÍTULO: ${input.title}
+PALABRAS ACTUALES: ${candidateWords}
+OBJETIVO: ${targetWords}; RANGO DURO: ${minWords}-${maxWords}.
+
+QUALITY_REPORT A CORREGIR:
+${qualityRepair}
+
+HECHOS A PRESERVAR:
+${JSON.stringify(factsToPreserve)}
+TERMINOLOGÍA:
+${JSON.stringify(terminology)}
+ANCLAS LITERALES PRESENTES QUE NO PUEDEN DESAPARECER:
+${JSON.stringify(uniqueAnchors)}
+
+Haz una reparación editorial QUIRÚRGICA, no un resumen ni una reescritura desde cero. Conserva estructura, evidencia, unidades, atribuciones y causalidad; corrige únicamente lo señalado por QUALITY. Devuelve exclusivamente el capítulo completo y terminado dentro del rango.
+
+CANDIDATO:
+${candidateText}
+`,
+  });
+
+  const repaired = sanitizeOutput(repairRaw);
+  const repairedWords = countWords(repaired);
+  const repairedNorm = normalize(repaired);
+  const missing = uniqueAnchors.filter((anchor) => !repairedNorm.includes(normalize(anchor)));
+  if (repairedWords < minWords || repairedWords > maxWords) {
+    throw new Error(`Deep Work V5.8: reparación QUALITY fuera de rango (${repairedWords}; requerido ${minWords}-${maxWords}).`);
+  }
+  if (missing.length) {
+    throw new Error(`Deep Work V5.8: reparación QUALITY perdió anclas: ${JSON.stringify(missing.slice(0, 12))}`);
+  }
+
+  return makeDraft(
+    repaired,
+    `V5.8 surgical quality repair; source=${candidateWords}; final=${repairedWords}; anchors=${uniqueAnchors.length}`
+  );
+}
