@@ -40,6 +40,7 @@
     "deep:11c:test": "node scripts/deep-work-11c-tests.mjs",
     "deep:11c:patch": "node scripts/patch-deep-work-v55.mjs",
     "deep:11c:recover": "node scripts/recover-deep-work-job.mjs",
+    "deep:11c:inspect": "node scripts/inspect-deep-work-job.mjs",
     "deep:11c:worker": "node scripts/patch-deep-work-v55.mjs && node scripts/run-deep-work-worker-local.mjs",
     "deep:11c:verify": "npm run brain:11a:test && npm run deep:11c:test && npm run typecheck && npm run build",
     "research:11d:test": "node scripts/research-11d-tests.mjs",
