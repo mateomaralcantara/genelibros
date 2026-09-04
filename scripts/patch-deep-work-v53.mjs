@@ -35,8 +35,8 @@ const loopNeedle = `  ) {
 
 const loopReplacement = `  ) {
     const model = attempt === 1 ? primaryModel : deepModel;
-    const isGemini3 = /^gemini-3(?:\\\\.|[-])/i.test(model);
-    const isGemini25 = /^gemini-2\\\\.5(?:[-]|$)/i.test(model);
+    const isGemini3 = /^gemini-3(?:\\.|[-])/i.test(model);
+    const isGemini25 = /^gemini-2\\.5(?:[-]|$)/i.test(model);
     const thinkingConfig = isGemini3
       ? { thinkingLevel: "LOW" }
       : isGemini25
