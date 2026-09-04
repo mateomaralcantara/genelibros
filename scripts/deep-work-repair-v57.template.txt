@@ -1,0 +1,316 @@
+export async function repairStep(input: {
+  depth: DeepWorkDepth;
+  title: string;
+  sourceContent: string;
+  candidate: DeepDraft;
+  quality: DeepQualityScore;
+  targetWords: number;
+  context?: DeepContextAnalysis;
+  researchContext?: AnyRow;
+}) {
+  // TOKEN_GUARD_V5.7
+  // Principio: BEST VALID CANDIDATE WINS.
+  // No se vuelve a reescribir globalmente un capítulo que ya cumple longitud.
+  // Cada segmento protege anclas determinísticas (cifras/unidades/leyes/términos).
+
+  const primaryModel = clean(process.env.DEEP_REPAIR_MODEL || modelFor(input.depth));
+  const deepModel = clean(modelFor(input.depth));
+
+  const targetWords = Math.max(300, Number(input.targetWords || 0));
+  const minWords = Math.floor(targetWords * 0.92);
+  const maxWords = Math.ceil(targetWords * 1.08);
+
+  const countWords = (value: string) => clean(value).split(/\s+/).filter(Boolean).length;
+  const sanitizeOutput = (value: string) =>
+    clean(value)
+      .replace(/^```(?:markdown|text)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .replace(/<<<BEGIN_[A-Z_]+>>>/gi, "")
+      .replace(/<<<END_[A-Z_]+>>>/gi, "")
+      .trim();
+
+  const normalizeAnchor = (value: string) =>
+    clean(value)
+      .toLowerCase()
+      .replace(/[–—−]/g, "-")
+      .replace(/\s+/g, " ")
+      .replace(/\s*([/%-])\s*/g, "$1")
+      .trim();
+
+  const includesAnchor = (text: string, anchor: string) =>
+    normalizeAnchor(text).includes(normalizeAnchor(anchor));
+
+  const candidateText = sanitizeOutput(input.candidate.content);
+  const candidateWords = countWords(candidateText);
+
+  const factsToPreserve = Array.isArray(input.context?.factsToPreserve)
+    ? input.context!.factsToPreserve.map(clean).filter(Boolean).slice(0, 48)
+    : [];
+  const terminology = Array.isArray(input.context?.terminology)
+    ? input.context!.terminology.map(clean).filter(Boolean).slice(0, 48)
+    : [];
+  const certifiedClaims = Array.isArray(input.researchContext?.claims)
+    ? input.researchContext.claims
+        .map((row: AnyRow) => clean(row?.claim))
+        .filter(Boolean)
+        .slice(0, 28)
+    : [];
+
+  const contextContract = JSON.stringify({
+    chapterPurpose: clean(input.context?.chapterPurpose),
+    factsToPreserve,
+    terminology,
+    voiceRules: Array.isArray(input.context?.voiceRules) ? input.context!.voiceRules : [],
+    continuityRisks: Array.isArray(input.context?.continuityRisks) ? input.context!.continuityRisks : [],
+    omissions: Array.isArray(input.context?.omissions) ? input.context!.omissions : [],
+    certifiedClaims,
+  });
+
+  const qualityRepair = JSON.stringify({
+    weaknesses: input.quality?.weaknesses || [],
+    requiredRepairs: input.quality?.requiredRepairs || [],
+    unsupportedNewClaims: input.quality?.unsupportedNewClaims || [],
+  });
+
+  const extractAnchors = (text: string) => {
+    const found: string[] = [];
+    const patterns = [
+      /\b(?:Ley|Decreto)\s+\d+(?:-\d+)?\b/gi,
+      /\b\d+(?:[.,]\d+)?\s*[–—-]\s*\d+(?:[.,]\d+)?\s*%/g,
+      /\b\d+(?:[.,]\d+)?\s*(?:%|MW|MWh|GWh|kWh(?:\s*\/\s*mes)?|US\$|RD\$)\b/gi,
+    ];
+    for (const pattern of patterns) {
+      for (const match of text.matchAll(pattern)) found.push(clean(match[0]));
+    }
+    for (const term of terminology) {
+      if (term.length >= 2 && includesAnchor(text, term)) found.push(term);
+    }
+    return Array.from(new Map(found.map((item) => [normalizeAnchor(item), item])).values());
+  };
+
+  const requiredAnchors = extractAnchors(candidateText);
+  const missingAnchors = (text: string, anchors = requiredAnchors) =>
+    anchors.filter((anchor) => !includesAnchor(text, anchor));
+
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTokens = 0;
+  let calls = 0;
+  const modelsUsed: string[] = [];
+
+  const generationConfig = (model: string, maxOutputTokens: number) => {
+    const isGemini3 = /^gemini-3(?:\.|[-])/i.test(model);
+    const isGemini25 = /^gemini-2\.5(?:[-]|$)/i.test(model);
+    const thinkingConfig = isGemini3
+      ? { thinkingLevel: "LOW" }
+      : isGemini25
+        ? { thinkingBudget: 1024 }
+        : undefined;
+    return {
+      systemInstruction:
+        "Eres ANCHORED_REPAIR_EDITOR V5.7 de Genelibros. " +
+        "Editas prosa terminada sin perder hechos ni anclas. " +
+        "Nunca sustituyas cifras, unidades, leyes, porcentajes, capacidades, términos técnicos, atribuciones o procedencia. " +
+        "Elimina redundancia antes que sustancia. No inventes hechos ni fuentes.",
+      temperature: isGemini3 ? 1.0 : 0.2,
+      maxOutputTokens,
+      ...(thinkingConfig ? { thinkingConfig } : {}),
+    } as any;
+  };
+
+  const callEditor = async (args: { model: string; prompt: string; maxOutputTokens: number }) => {
+    const response = await aiClient().models.generateContent({
+      model: args.model,
+      contents: [{ role: "user", parts: [{ text: args.prompt }] }],
+      config: generationConfig(args.model, args.maxOutputTokens),
+    });
+    calls += 1;
+    modelsUsed.push(args.model);
+    const u: AnyRow = (response as any)?.usageMetadata || (response as any)?.usage || {};
+    const inputTokens = Number(u.promptTokenCount || u.inputTokens || 0) || 0;
+    const outputTokens = Number(u.candidatesTokenCount || u.outputTokens || 0) || 0;
+    const callTotalTokens = Number(u.totalTokenCount || u.totalTokens || inputTokens + outputTokens) || 0;
+    totalInputTokens += inputTokens;
+    totalOutputTokens += outputTokens;
+    totalTokens += callTotalTokens;
+    const text = sanitizeOutput(clean((response as any)?.text));
+    const finishReason = clean((response as any)?.candidates?.[0]?.finishReason).toUpperCase();
+    if (!text) throw new Error(`Deep Work V5.7: ${args.model} devolvió salida vacía; finishReason=${finishReason || "UNKNOWN"}.`);
+    return { text, finishReason };
+  };
+
+  const makeDraft = (content: string, rationale: string) => ({
+    draft: {
+      label: "REPAIR",
+      content: sanitizeOutput(content),
+      rationale,
+      strengths: [],
+      risks: [],
+    } as DeepDraft,
+    usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens, calls },
+    model: modelsUsed[modelsUsed.length - 1] || deepModel,
+  });
+
+  const splitBalanced = (text: string, requestedChunks: number) => {
+    const paragraphs = text.split(/\n\s*\n/).map(clean).filter(Boolean);
+    if (paragraphs.length < 2 || requestedChunks <= 1) return [text];
+    const total = paragraphs.reduce((sum, p) => sum + countWords(p), 0);
+    const targetPerChunk = Math.ceil(total / requestedChunks);
+    const chunks: string[] = [];
+    let current: string[] = [];
+    let currentWords = 0;
+    for (const paragraph of paragraphs) {
+      const words = countWords(paragraph);
+      if (current.length && chunks.length < requestedChunks - 1 && currentWords + words > targetPerChunk) {
+        chunks.push(current.join("\n\n"));
+        current = [];
+        currentWords = 0;
+      }
+      current.push(paragraph);
+      currentWords += words;
+    }
+    if (current.length) chunks.push(current.join("\n\n"));
+    return chunks.length ? chunks : [text];
+  };
+
+  const targetTotal = candidateWords > maxWords
+    ? targetWords
+    : Math.min(maxWords, Math.max(minWords, candidateWords));
+  const requestedChunks = candidateWords > 4200 ? 4 : candidateWords > 2800 ? 3 : candidateWords > 1500 ? 2 : 1;
+  const chunks = splitBalanced(candidateText, requestedChunks);
+  const sourceTotal = chunks.reduce((sum, chunk) => sum + countWords(chunk), 0);
+  const repairedChunks: string[] = [];
+  let remainingTarget = targetTotal;
+  let remainingSource = sourceTotal;
+
+  for (let i = 0; i < chunks.length; i += 1) {
+    const chunk = chunks[i];
+    const sourceWords = countWords(chunk);
+    const isLast = i === chunks.length - 1;
+    const chunkTarget = isLast
+      ? Math.max(220, remainingTarget)
+      : Math.max(220, Math.round(remainingTarget * (sourceWords / Math.max(1, remainingSource))));
+    const chunkMin = Math.max(200, Math.floor(chunkTarget * 0.93));
+    const chunkMax = Math.ceil(chunkTarget * 1.07);
+    const chunkAnchors = extractAnchors(chunk);
+
+    const makePrompt = (extra = "") => `
+CAPÍTULO: ${input.title}
+SEGMENTO ${i + 1}/${chunks.length}
+PALABRAS ORIGINALES: ${sourceWords}
+OBJETIVO: ${chunkTarget}
+RANGO OBLIGATORIO: ${chunkMin}-${chunkMax}
+
+ANCLAS QUE DEBEN SOBREVIVIR LITERAL O EQUIVALENTEMENTE:
+${JSON.stringify(chunkAnchors)}
+
+CONTRATO GLOBAL INNEGOCIABLE:
+${contextContract}
+
+QUALITY_REPORT:
+${qualityRepair}
+
+${extra}
+REGLAS:
+- Corrige QUALITY dentro de este tramo y conserva su posición lógica.
+- Comprime repetición, relleno y transición inflada; no elimines evidencia ni mecanismos causales.
+- No cortes oraciones ni párrafos a mitad.
+- No cambies dólares/pesos, miles/decenas de miles, porcentajes, MW, kWh, fechas, leyes, nombres ni atribuciones.
+- Todas las ANCLAS de este segmento deben sobrevivir.
+- Devuelve exclusivamente el segmento terminado.
+
+SEGMENTO ORIGINAL:
+${chunk}
+`;
+
+    const first = await callEditor({
+      model: primaryModel,
+      prompt: makePrompt(),
+      maxOutputTokens: Math.max(2400, Math.ceil(chunkTarget * 2.8)),
+    });
+
+    let bestText = first.text;
+    let bestWords = countWords(bestText);
+    let bestMissing = missingAnchors(bestText, chunkAnchors);
+    const firstValid = bestWords >= chunkMin && bestWords <= chunkMax && bestMissing.length === 0 && !first.finishReason.includes("MAX_TOKENS");
+
+    if (!firstValid) {
+      const retry = await callEditor({
+        model: deepModel,
+        prompt: makePrompt(`EL INTENTO ANTERIOR TUVO ${bestWords} PALABRAS Y PERDIÓ ESTAS ANCLAS: ${JSON.stringify(bestMissing)}.\nRepite DESDE EL SEGMENTO ORIGINAL, no desde la salida anterior.`),
+        maxOutputTokens: Math.max(2600, Math.ceil(chunkTarget * 3.0)),
+      });
+      const retryWords = countWords(retry.text);
+      const retryMissing = missingAnchors(retry.text, chunkAnchors);
+
+      const score = (words: number, missing: string[]) =>
+        missing.length * 100000 + (words < chunkMin ? chunkMin - words : words > chunkMax ? words - chunkMax : 0);
+
+      if (score(retryWords, retryMissing) <= score(bestWords, bestMissing)) {
+        bestText = retry.text;
+        bestWords = retryWords;
+        bestMissing = retryMissing;
+      }
+    }
+
+    if (bestMissing.length) {
+      throw new Error(`Deep Work V5.7: segmento ${i + 1} perdió anclas obligatorias: ${JSON.stringify(bestMissing.slice(0, 12))}`);
+    }
+    if (bestWords < chunkMin || bestWords > chunkMax) {
+      throw new Error(`Deep Work V5.7: segmento ${i + 1} fuera de rango (${bestWords}; requerido ${chunkMin}-${chunkMax}).`);
+    }
+
+    repairedChunks.push(bestText);
+    remainingTarget = Math.max(0, remainingTarget - bestWords);
+    remainingSource = Math.max(1, remainingSource - sourceWords);
+  }
+
+  let provisionalText = sanitizeOutput(repairedChunks.join("\n\n"));
+  let provisionalWords = countWords(provisionalText);
+  let globalMissing = missingAnchors(provisionalText);
+
+  if (provisionalWords >= minWords && provisionalWords <= maxWords && globalMissing.length === 0) {
+    return makeDraft(
+      provisionalText,
+      `V5.7 anchored segmented repair; source=${candidateWords}; final=${provisionalWords}; chunks=${chunks.length}; anchors=${requiredAnchors.length}`
+    );
+  }
+
+  // Calibración de rescate: solo se usa si la suma de segmentos quedó fuera del rango.
+  // Nunca sustituye una versión provisional válida.
+  const rescue = await callEditor({
+    model: deepModel,
+    maxOutputTokens: Math.max(8000, Math.ceil(targetWords * 3.0)),
+    prompt: `
+CAPÍTULO: ${input.title}
+PALABRAS ACTUALES: ${provisionalWords}
+OBJETIVO: ${targetWords}; RANGO DURO: ${minWords}-${maxWords}.
+ANCLAS GLOBALES OBLIGATORIAS: ${JSON.stringify(requiredAnchors)}
+ANCLAS AUSENTES AHORA: ${JSON.stringify(globalMissing)}
+
+CONTRATO:
+${contextContract}
+
+QUALITY_REPORT:
+${qualityRepair}
+
+Ajusta exclusivamente longitud, continuidad y las anclas ausentes. No resumas ni reescribas desde cero. Conserva toda evidencia, causalidad, terminología, cifras, unidades, leyes y atribuciones ya presentes. Elimina repetición antes que sustancia. Devuelve exclusivamente el capítulo completo.
+
+TEXTO PROVISIONAL:
+${provisionalText}
+`,
+  });
+
+  const rescueWords = countWords(rescue.text);
+  const rescueMissing = missingAnchors(rescue.text);
+  if (rescueWords >= minWords && rescueWords <= maxWords && rescueMissing.length === 0) {
+    return makeDraft(
+      rescue.text,
+      `V5.7 anchored rescue; source=${candidateWords}; provisional=${provisionalWords}; final=${rescueWords}; anchors=${requiredAnchors.length}`
+    );
+  }
+
+  throw new Error(
+    `Deep Work V5.7: ningún candidato válido; provisional=${provisionalWords}, missing=${JSON.stringify(globalMissing.slice(0, 12))}; rescue=${rescueWords}, rescueMissing=${JSON.stringify(rescueMissing.slice(0, 12))}; requerido=${minWords}-${maxWords}`
+  );
+}
