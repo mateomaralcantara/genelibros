@@ -44,11 +44,20 @@ console.log("[Genelibros] .env.local cargado en el proceso de Vercel Dev.");
 console.log("[Genelibros] Variables sensibles detectadas sin imprimir sus valores.");
 console.log("[Genelibros] Iniciando http://localhost:3000 ...\n");
 
-const command = process.platform === "win32" ? "vercel.cmd" : "vercel";
-const child = spawn(command, ["dev", "--listen", "3000"], {
+// Windows no ejecuta de forma fiable wrappers .cmd directamente mediante
+// child_process.spawn en todas las combinaciones Node/npm. Invocamos el
+// intérprete del sistema explícitamente; en Unix ejecutamos vercel directo.
+const isWindows = process.platform === "win32";
+const command = isWindows ? (process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe") : "vercel";
+const args = isWindows
+  ? ["/d", "/s", "/c", "vercel dev --listen 3000"]
+  : ["dev", "--listen", "3000"];
+
+const child = spawn(command, args, {
   cwd: root,
   env: merged,
   stdio: "inherit",
+  windowsHide: false,
 });
 
 child.on("error", (error) => {
@@ -58,6 +67,6 @@ child.on("error", (error) => {
 });
 
 child.on("exit", (code, signal) => {
-  if (signal) process.kill(process.pid, signal);
+  if (signal && process.platform !== "win32") process.kill(process.pid, signal);
   process.exit(code ?? 0);
 });
