@@ -42,6 +42,14 @@ while (true) {
   try { body = JSON.parse(text); } catch { body = { raw: text }; }
   if (!response.ok) {
     console.error(`[TICK ${String(tick).padStart(2, "0")}] HTTP ${response.status}`, body);
+    const message = String(body?.error || body?.message || "");
+    const fatalConfig =
+      response.status === 401 ||
+      /Falta DEEP_WORKER_SECRET|REFINERY_WORKER_SECRET|OS4_WORKER_SECRET|credenciales server-side de Supabase|GEMINI_API_KEY/i.test(message);
+    if (fatalConfig) {
+      console.error("[Genelibros] Error de configuración local. Worker detenido para evitar reintentos inútiles.");
+      process.exit(5);
+    }
     if (body?.status === "DEAD_LETTER") process.exit(4);
     await new Promise((r) => setTimeout(r, 2500));
     continue;
