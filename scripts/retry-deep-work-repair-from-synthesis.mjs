@@ -42,8 +42,19 @@ if (jobError || !job) {
   process.exit(4);
 }
 
-if (job.status !== "COMPLETED" || String(job.result?.quality?.verdict || "") !== "REJECTED") {
-  console.error(`Retry cancelado: se esperaba COMPLETED/REJECTED y llegó ${job.status}/${job.result?.quality?.verdict || "NONE"}.`);
+const verdict = String(job.result?.quality?.verdict || "");
+const checkpointStep = String(job.checkpoint?.step || "");
+const completedRejected = job.status === "COMPLETED" && verdict === "REJECTED";
+const technicalRepairFailure =
+  ["RETRYING", "DEAD_LETTER", "QUEUED"].includes(String(job.status || "")) &&
+  checkpointStep === "REPAIR" &&
+  ["REPAIR", "REJECTED"].includes(verdict);
+
+if (!completedRejected && !technicalRepairFailure) {
+  console.error(
+    `Retry cancelado: estado no elegible ${job.status}/${checkpointStep || "NO_STEP"}/${verdict || "NONE"}. ` +
+    "Solo se permite COMPLETED/REJECTED o un fallo técnico detenido en REPAIR."
+  );
   process.exit(5);
 }
 
@@ -77,7 +88,7 @@ const result = { ...(job.result || {}) };
 result.finalCandidate = {
   label: "SYNTHESIS",
   content: synthesis.content,
-  rationale: "Restaurado desde artifact SYNTHESIS para retry V5.6 sin repetir etapas costosas.",
+  rationale: "Restaurado desde artifact SYNTHESIS para retry V5.7 sin repetir PLAN/CONTEXT/DRAFT/CRITIC/SYNTHESIS.",
   strengths: [],
   risks: [],
 };
@@ -86,6 +97,7 @@ result.repairAttempts = 0;
 result.applyAllowed = false;
 delete result.completedAt;
 
+const now = new Date().toISOString();
 const { data: updated, error: updateError } = await s
   .from("deep_work_jobs")
   .update({
@@ -94,7 +106,7 @@ const { data: updated, error: updateError } = await s
     result,
     progress: 78,
     attempts: 0,
-    next_retry_at: new Date().toISOString(),
+    next_retry_at: now,
     locked_by: null,
     locked_at: null,
     heartbeat_at: null,
@@ -103,10 +115,9 @@ const { data: updated, error: updateError } = await s
     error: null,
     dead_letter_at: null,
     completed_at: null,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
   })
   .eq("id", jobId)
-  .eq("status", "COMPLETED")
   .select("id,status,checkpoint,progress,attempts,result")
   .single();
 
@@ -116,9 +127,10 @@ if (updateError || !updated) {
 }
 
 const words = String(synthesis.content).trim().split(/\s+/).filter(Boolean).length;
-console.log("Retry de REPAIR preparado desde SYNTHESIS persistido:");
+console.log("Retry V5.7 preparado desde SYNTHESIS persistido:");
 console.log({
   id: updated.id,
+  previousStatus: job.status,
   status: updated.status,
   checkpoint: updated.checkpoint,
   progress: updated.progress,
