@@ -1,0 +1,313 @@
+export async function repairStep(input: {
+  depth: DeepWorkDepth;
+  title: string;
+  sourceContent: string;
+  candidate: DeepDraft;
+  quality: DeepQualityScore;
+  targetWords: number;
+  context?: DeepContextAnalysis;
+  researchContext?: AnyRow;
+}) {
+  // TOKEN_GUARD_V5.6
+  // Regla central: comprimir nunca puede borrar el contrato factual/editorial.
+  // Si el candidato ya está en rango, no se vuelve a segmentar: se hace una
+  // reconciliación global dirigida por QUALITY + CONTEXT.
+
+  const primaryModel = clean(process.env.DEEP_REPAIR_MODEL || modelFor(input.depth));
+  const deepModel = clean(modelFor(input.depth));
+
+  const targetWords = Math.max(300, Number(input.targetWords || 0));
+  const minWords = Math.floor(targetWords * 0.92);
+  const maxWords = Math.ceil(targetWords * 1.08);
+  const preferredMin = Math.round(targetWords * 0.98);
+  const preferredMax = Math.round(targetWords * 1.02);
+
+  const countWords = (value: string) => clean(value).split(/\s+/).filter(Boolean).length;
+  const sanitizeOutput = (value: string) =>
+    clean(value)
+      .replace(/^```(?:markdown|text)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .replace(/<<<BEGIN_[A-Z_]+>>>/gi, "")
+      .replace(/<<<END_[A-Z_]+>>>/gi, "")
+      .trim();
+
+  const candidateText = sanitizeOutput(input.candidate.content);
+  const candidateWords = countWords(candidateText);
+
+  const factsToPreserve = Array.isArray(input.context?.factsToPreserve)
+    ? input.context!.factsToPreserve.map(clean).filter(Boolean).slice(0, 40)
+    : [];
+  const terminology = Array.isArray(input.context?.terminology)
+    ? input.context!.terminology.map(clean).filter(Boolean).slice(0, 40)
+    : [];
+  const certifiedClaims = Array.isArray(input.researchContext?.claims)
+    ? input.researchContext.claims
+        .map((row: AnyRow) => clean(row?.claim))
+        .filter(Boolean)
+        .slice(0, 24)
+    : [];
+
+  const contextContract = JSON.stringify({
+    chapterPurpose: clean(input.context?.chapterPurpose),
+    factsToPreserve,
+    terminology,
+    voiceRules: Array.isArray(input.context?.voiceRules) ? input.context!.voiceRules : [],
+    continuityRisks: Array.isArray(input.context?.continuityRisks) ? input.context!.continuityRisks : [],
+    omissions: Array.isArray(input.context?.omissions) ? input.context!.omissions : [],
+    certifiedClaims,
+  });
+
+  const qualityRepair = JSON.stringify({
+    weaknesses: input.quality?.weaknesses || [],
+    requiredRepairs: input.quality?.requiredRepairs || [],
+    unsupportedNewClaims: input.quality?.unsupportedNewClaims || [],
+  });
+
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTokens = 0;
+  let calls = 0;
+  const modelsUsed: string[] = [];
+
+  const generationConfig = (model: string, maxOutputTokens: number) => {
+    const isGemini3 = /^gemini-3(?:\.|[-])/i.test(model);
+    const isGemini25 = /^gemini-2\.5(?:[-]|$)/i.test(model);
+    const thinkingConfig = isGemini3
+      ? { thinkingLevel: "LOW" }
+      : isGemini25
+        ? { thinkingBudget: 1024 }
+        : undefined;
+    return {
+      systemInstruction:
+        "Eres INVARIANT_REPAIR_EDITOR V5.6 de Genelibros. " +
+        "Tu prioridad es preservar el contrato factual y editorial mientras corriges QUALITY. " +
+        "Nunca sustituyas datos, unidades, leyes, porcentajes, capacidades, atribuciones o procedencia. " +
+        "Elimina relleno antes que sustancia. No inventes hechos ni fuentes.",
+      temperature: isGemini3 ? 1.0 : 0.2,
+      maxOutputTokens,
+      ...(thinkingConfig ? { thinkingConfig } : {}),
+    } as any;
+  };
+
+  const callEditor = async (args: { model: string; prompt: string; maxOutputTokens: number }) => {
+    const response = await aiClient().models.generateContent({
+      model: args.model,
+      contents: [{ role: "user", parts: [{ text: args.prompt }] }],
+      config: generationConfig(args.model, args.maxOutputTokens),
+    });
+    calls += 1;
+    modelsUsed.push(args.model);
+    const u: AnyRow = (response as any)?.usageMetadata || (response as any)?.usage || {};
+    const inputTokens = Number(u.promptTokenCount || u.inputTokens || 0) || 0;
+    const outputTokens = Number(u.candidatesTokenCount || u.outputTokens || 0) || 0;
+    const callTotalTokens = Number(u.totalTokenCount || u.totalTokens || inputTokens + outputTokens) || 0;
+    totalInputTokens += inputTokens;
+    totalOutputTokens += outputTokens;
+    totalTokens += callTotalTokens;
+    const text = sanitizeOutput(clean((response as any)?.text));
+    const finishReason = clean((response as any)?.candidates?.[0]?.finishReason).toUpperCase();
+    if (!text) throw new Error(`Deep Work V5.6: ${args.model} devolvió salida vacía; finishReason=${finishReason || "UNKNOWN"}.`);
+    return { text, finishReason };
+  };
+
+  const makeDraft = (content: string, rationale: string) => ({
+    draft: {
+      label: "REPAIR",
+      content: sanitizeOutput(content),
+      rationale,
+      strengths: [],
+      risks: [],
+    } as DeepDraft,
+    usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens, calls },
+    model: modelsUsed[modelsUsed.length - 1] || deepModel,
+  });
+
+  const splitBalanced = (text: string, requestedChunks: number) => {
+    const paragraphs = text.split(/\n\s*\n/).map(clean).filter(Boolean);
+    if (paragraphs.length < 2 || requestedChunks <= 1) return [text];
+    const total = paragraphs.reduce((sum, p) => sum + countWords(p), 0);
+    const targetPerChunk = Math.ceil(total / requestedChunks);
+    const chunks: string[] = [];
+    let current: string[] = [];
+    let currentWords = 0;
+    for (const paragraph of paragraphs) {
+      const words = countWords(paragraph);
+      if (current.length && chunks.length < requestedChunks - 1 && currentWords + words > targetPerChunk) {
+        chunks.push(current.join("\n\n"));
+        current = [];
+        currentWords = 0;
+      }
+      current.push(paragraph);
+      currentWords += words;
+    }
+    if (current.length) chunks.push(current.join("\n\n"));
+    return chunks.length ? chunks : [text];
+  };
+
+  let provisionalText = candidateText;
+
+  // Solo comprimimos por segmentos cuando la longitud lo exige.
+  if (candidateWords > maxWords) {
+    const requestedChunks = candidateWords > 4200 ? 4 : candidateWords > 3000 ? 3 : 2;
+    const chunks = splitBalanced(candidateText, requestedChunks);
+    const sourceTotal = chunks.reduce((sum, chunk) => sum + countWords(chunk), 0);
+    const repairedChunks: string[] = [];
+    let remainingTarget = targetWords;
+    let remainingSource = sourceTotal;
+
+    for (let i = 0; i < chunks.length; i += 1) {
+      const chunk = chunks[i];
+      const sourceWords = countWords(chunk);
+      const isLast = i === chunks.length - 1;
+      const chunkTarget = isLast
+        ? Math.max(220, remainingTarget)
+        : Math.max(220, Math.round(remainingTarget * (sourceWords / Math.max(1, remainingSource))));
+      const chunkMin = Math.max(200, Math.floor(chunkTarget * 0.93));
+      const chunkMax = Math.ceil(chunkTarget * 1.07);
+
+      const prompt = `
+CAPÍTULO: ${input.title}
+SEGMENTO ${i + 1}/${chunks.length}
+PALABRAS ORIGINALES: ${sourceWords}
+OBJETIVO: ${chunkTarget}
+RANGO: ${chunkMin}-${chunkMax}
+
+CONTRATO GLOBAL INNEGOCIABLE:
+${contextContract}
+
+QUALITY_REPORT:
+${qualityRepair}
+
+REGLAS:
+- Comprime redundancia, transiciones infladas y repetición; no comprimas hechos ni razonamiento causal necesario.
+- Si un hecho/ley/cifra/término del CONTRATO aparece semánticamente en este segmento, DEBE sobrevivir con su significado, unidad y atribución intactos.
+- No insertes en este segmento invariantes que pertenezcan claramente a otra parte del capítulo.
+- Conserva encabezados y párrafos completos. Nunca cortes una oración.
+- No cambies dólares por pesos, miles por decenas de miles, porcentajes, MW, kWh, fechas, leyes ni nombres.
+- Devuelve exclusivamente el segmento terminado, sin etiquetas ni comentarios.
+
+SEGMENTO ORIGINAL:
+${chunk}
+`;
+
+      const first = await callEditor({
+        model: primaryModel,
+        prompt,
+        maxOutputTokens: Math.max(2200, Math.ceil(chunkTarget * 2.5)),
+      });
+      let bestText = first.text;
+      let bestWords = countWords(bestText);
+
+      if (bestWords < chunkMin || bestWords > chunkMax || first.finishReason.includes("MAX_TOKENS")) {
+        const retry = await callEditor({
+          model: deepModel,
+          maxOutputTokens: Math.max(2400, Math.ceil(chunkTarget * 2.7)),
+          prompt: `
+Repite desde el SEGMENTO ORIGINAL. Tu salida anterior tuvo ${bestWords} palabras.
+Rango obligatorio: ${chunkMin}-${chunkMax}. Objetivo: ${chunkTarget}.
+Preserva todos los invariantes del contrato que estén presentes en este segmento.
+No cortes oraciones ni cambies unidades, cifras, leyes, fechas o atribuciones.
+
+CONTRATO GLOBAL:
+${contextContract}
+
+QUALITY_REPORT:
+${qualityRepair}
+
+SEGMENTO ORIGINAL:
+${chunk}
+`,
+        });
+        const retryWords = countWords(retry.text);
+        if (retryWords >= chunkMin && retryWords <= chunkMax) {
+          bestText = retry.text;
+          bestWords = retryWords;
+        }
+      }
+
+      repairedChunks.push(bestText);
+      remainingTarget = Math.max(0, remainingTarget - bestWords);
+      remainingSource = Math.max(1, remainingSource - sourceWords);
+    }
+
+    provisionalText = sanitizeOutput(repairedChunks.join("\n\n"));
+  }
+
+  // Reconciliación global SIEMPRE. Aquí se restauran exclusivamente invariantes
+  // certificados/contractuales que se hayan perdido durante una compresión local.
+  let provisionalWords = countWords(provisionalText);
+  const reconcilePrompt = `
+CAPÍTULO: ${input.title}
+PALABRAS ACTUALES: ${provisionalWords}
+OBJETIVO: ${targetWords}
+RANGO DURO: ${minWords}-${maxWords}
+RANGO PREFERIDO: ${preferredMin}-${preferredMax}
+
+CONTRATO EDITORIAL/FACTUAL OBLIGATORIO:
+${contextContract}
+
+QUALITY_REPORT A CORREGIR:
+${qualityRepair}
+
+REGLAS DE RECONCILIACIÓN:
+1. Devuelve un capítulo completo, coherente y publicable dentro del rango duro.
+2. Todos los factsToPreserve y certifiedClaims aplicables al propósito del capítulo deben quedar integrados fielmente; no cambies magnitudes, unidades, fechas, leyes, instituciones, capacidades, porcentajes, atribuciones ni procedencia.
+3. Integra la terminología técnica exigida de forma natural (no como glosario artificial).
+4. Corrige todas las reparaciones del QUALITY_REPORT, en especial truncaciones, unidades erróneas, pérdida de profundidad y exceso de fluff.
+5. Si falta espacio, elimina retórica genérica, reiteraciones y adjetivación antes de eliminar evidencia, mecanismos causales, ciclos o conceptos técnicos.
+6. SOURCE ORIGINAL sirve para continuidad editorial; si existe conflicto factual, prevalecen factsToPreserve/certifiedClaims y las correcciones explícitas de QUALITY.
+7. No inventes fuentes ni hechos. No escribas notas, diagnóstico, checklist ni delimitadores.
+
+SOURCE ORIGINAL (continuidad):
+${input.sourceContent.slice(0, 50000)}
+
+CANDIDATO A RECONCILIAR:
+${provisionalText}
+`;
+
+  let reconciled = await callEditor({
+    model: deepModel,
+    prompt: reconcilePrompt,
+    maxOutputTokens: Math.max(8000, Math.ceil(targetWords * 3.0)),
+  });
+  let finalText = reconciled.text;
+  let finalWords = countWords(finalText);
+
+  // Una sola calibración si la reconciliación global quedó fuera de rango.
+  if (finalWords < minWords || finalWords > maxWords) {
+    const calibration = await callEditor({
+      model: deepModel,
+      maxOutputTokens: Math.max(8000, Math.ceil(targetWords * 3.0)),
+      prompt: `
+CAPÍTULO: ${input.title}
+PALABRAS ACTUALES: ${finalWords}
+OBJETIVO: ${targetWords}; RANGO DURO: ${minWords}-${maxWords}.
+
+CONTRATO QUE NO PUEDES DEGRADAR:
+${contextContract}
+
+QUALITY_REPORT:
+${qualityRepair}
+
+Ajusta SOLO densidad, continuidad y longitud. No elimines factsToPreserve, certifiedClaims, terminología técnica, mecanismos causales, ciclos, leyes, cifras, fechas, unidades ni atribuciones. Para hacer espacio elimina primero repetición y retórica.
+Devuelve exclusivamente el capítulo completo.
+
+TEXTO RECONCILIADO:
+${finalText}
+`,
+    });
+    finalText = calibration.text;
+    finalWords = countWords(finalText);
+  }
+
+  if (finalWords < minWords || finalWords > maxWords) {
+    throw new Error(
+      `Deep Work V5.6: reconciliación fuera de rango (${finalWords}; requerido ${minWords}-${maxWords}); source=${candidateWords}; model=${deepModel}; preview=${JSON.stringify(finalText.slice(0, 700))}`
+    );
+  }
+
+  return makeDraft(
+    finalText,
+    `V5.6 invariant-preserving repair; source=${candidateWords}; provisional=${provisionalWords}; final=${finalWords}; facts=${factsToPreserve.length}; terms=${terminology.length}; claims=${certifiedClaims.length}`
+  );
+}
