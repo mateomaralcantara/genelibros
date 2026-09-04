@@ -3,18 +3,20 @@ function importDiagnostic(error: unknown) {
     name?: string;
     code?: string;
     message?: string;
+    stack?: string;
   };
 
-  if (process.env.VERCEL_ENV !== "preview") {
+  // En producción no exponemos detalles internos. En local (vercel dev) y
+  // preview sí devolvemos el diagnóstico para evitar ROUTER_IMPORT_FAILED opaco.
+  if (process.env.VERCEL_ENV === "production") {
     return undefined;
   }
 
   return {
     name: String(err?.name || "Error"),
     code: String(err?.code || ""),
-    message: String(
-      err?.message || "Unknown import error"
-    ).slice(0, 1200),
+    message: String(err?.message || "Unknown import error").slice(0, 1600),
+    stack: String(err?.stack || "").slice(0, 2400),
   };
 }
 export const maxDuration = 300;
