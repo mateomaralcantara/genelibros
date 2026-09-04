@@ -4,6 +4,11 @@ import path from "node:path";
 const file = path.resolve(process.cwd(), "src/server/deep-work-runtime.ts");
 let s = fs.readFileSync(file, "utf8");
 
+if (s.includes("TOKEN_GUARD_V5.4")) {
+  console.log("[Genelibros] Deep Work V5.4 ya reemplaza V5.3; no se aplica V5.3.");
+  process.exit(0);
+}
+
 if (s.includes("TOKEN_GUARD_V5.3")) {
   console.log("[Genelibros] Deep Work V5.3 ya está instalado.");
   process.exit(0);
