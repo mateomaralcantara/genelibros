@@ -20,6 +20,13 @@ function sha256(value) {
   return crypto.createHash("sha256").update(String(value || ""), "utf8").digest("hex");
 }
 
+function canonicalText(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+}
+
 function words(value) {
   return String(value || "").trim().split(/\s+/).filter(Boolean).length;
 }
@@ -62,10 +69,16 @@ if (!fs.existsSync(manifestPath)) {
   process.exit(5);
 }
 
-const text = fs.readFileSync(filePath, "utf8").trim();
+const rawText = fs.readFileSync(filePath, "utf8");
+const hadWindowsLineEndings = /\r/.test(rawText);
+const text = canonicalText(rawText);
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const newHash = sha256(text);
 const newWords = words(text);
+
+if (hadWindowsLineEndings) {
+  console.log("[Genelibros] CRLF/CR detectado: normalizado a LF antes de validar y aplicar.");
+}
 
 if (String(manifest.jobId || "") !== jobId) {
   throw new Error(`MANIFEST_JOB_MISMATCH: ${manifest.jobId} != ${jobId}`);
@@ -128,6 +141,7 @@ fs.writeFileSync(backupJson, JSON.stringify({
   previousHash: currentHash,
   newHash,
   newWords,
+  lineEndingNormalization: hadWindowsLineEndings ? "CRLF_OR_CR_TO_LF" : "NONE",
   createdAt: new Date().toISOString(),
 }, null, 2), "utf8");
 
@@ -148,6 +162,7 @@ const { data: artifactId, error: artifactError } = await s.rpc("deep_create_arti
     final_hash: newHash,
     words: newWords,
     manifest: path.basename(manifestPath),
+    line_ending_normalization: hadWindowsLineEndings ? "CRLF_OR_CR_TO_LF" : "NONE",
   },
   p_content_hash: newHash,
   p_model: null,
@@ -181,6 +196,7 @@ result.manualFinal = {
   appliedAt: new Date().toISOString(),
   llmCalls: 0,
   validation: "DETERMINISTIC_LOCAL_MANIFEST",
+  lineEndingNormalization: hadWindowsLineEndings ? "CRLF_OR_CR_TO_LF" : "NONE",
 };
 result.manualApplied = true;
 result.manualAppliedAt = result.manualFinal.appliedAt;
@@ -210,6 +226,7 @@ console.log({
   artifactId: String(artifactId || ""),
   backupTxt,
   backupJson,
+  lineEndingNormalization: hadWindowsLineEndings ? "CRLF_OR_CR_TO_LF" : "NONE",
   llmCalls: 0,
   externalCredits: 0,
 });
