@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "node scripts/prepare-production-runtime.mjs && vite build",
   "rewrites": [
     {
       "source": "/api/deep-work-apply",
