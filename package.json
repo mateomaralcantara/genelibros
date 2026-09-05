@@ -75,7 +75,7 @@
     "docx": "^8.5.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
-    "pdfjs-dist": "6.3.289",
+    "pdf-parse": "2.4.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
