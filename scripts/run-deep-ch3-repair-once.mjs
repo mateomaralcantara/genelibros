@@ -25,15 +25,14 @@ console.log("\n================================================");
 console.log(" GENELIBROS — CHAPTER 3 FINAL REPAIR ONCE");
 console.log("================================================");
 console.log("[Genelibros] No repite Research, PLAN, CONTEXT, drafts, Critic ni Synthesis.");
-console.log("[Genelibros] Máximo adicional: 2 llamadas LLM = 1 REPAIR + 1 QUALITY.");
-console.log("[Genelibros] Sin segunda reparación automática.\n");
+console.log("[Genelibros] Máximo adicional: 2 llamadas LLM = 1 DIRECT REPAIR + 1 QUALITY.");
+console.log("[Genelibros] repairStep queda fuera del flujo; sin segunda reparación automática.\n");
 
 runNode("scripts/patch-deep-work-v58.mjs");
 runNode("scripts/patch-deep-work-credit-guard.mjs");
 runNode("scripts/patch-deep-work-model-compat.mjs");
 runNode("scripts/patch-deep-work-json-sanitizer.mjs");
 runNode("scripts/patch-deep-work-longform-text.mjs");
-runNode("scripts/patch-deep-repair-single-call.mjs");
 runNode("scripts/patch-deep-work-research-override.mjs");
 runNode("scripts/deep-work-json-sanitizer-tests.mjs");
 runNode("scripts/deep-work-longform-text-tests.mjs");
