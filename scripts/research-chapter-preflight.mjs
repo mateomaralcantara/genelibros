@@ -31,6 +31,74 @@ function isGenericChapterTitle(value, chapterNumber) {
   const normalized = clean(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   return !normalized || normalized === `capitulo ${chapterNumber}` || /^capitulo\s+\d+$/.test(normalized);
 }
+function parseOutline(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") {
+    if (Array.isArray(value.items)) return value.items;
+    if (Array.isArray(value.chapters)) return value.chapters;
+    return [];
+  }
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === "object") {
+      if (Array.isArray(parsed.items)) return parsed.items;
+      if (Array.isArray(parsed.chapters)) return parsed.chapters;
+    }
+  } catch {}
+  return [];
+}
+function outlineEntryFor(project, chapterNumber) {
+  const outline = parseOutline(project?.outline_12);
+  if (!outline.length) return null;
+  const expectedId = `outline_${String(chapterNumber).padStart(2, "0")}`.toLowerCase();
+  return outline.find((item) => clean(item?.id).toLowerCase() === expectedId)
+    || outline.find((item) => Number(item?.chapter_number ?? item?.chapterNumber ?? item?.number) === chapterNumber)
+    || outline[chapterNumber - 1]
+    || null;
+}
+function firstText(candidates) {
+  for (const candidate of candidates) {
+    const value = clean(candidate);
+    if (value) return value;
+  }
+  return "";
+}
+function resolveOutlineTopic(entry) {
+  if (!entry) return { topic: "", source: null };
+  const named = [
+    [entry?.title, "outline.title"],
+    [entry?.chapter_title, "outline.chapter_title"],
+    [entry?.topic, "outline.topic"],
+    [entry?.heading, "outline.heading"],
+    [entry?.name, "outline.name"],
+    [entry?.os4?.chapter_title, "outline.os4.chapter_title"],
+    [entry?.os4?.title, "outline.os4.title"],
+    [entry?.os4?.topic, "outline.os4.topic"],
+    [entry?.objective, "outline.objective"],
+    [entry?.os4?.objective, "outline.os4.objective"],
+    [entry?.chapter_thesis, "outline.chapter_thesis"],
+    [entry?.os4?.chapter_thesis, "outline.os4.chapter_thesis"],
+  ];
+  for (const [value, source] of named) {
+    if (clean(value)) return { topic: clean(value), source };
+  }
+  return { topic: "", source: null };
+}
+function compactOutlineEntry(entry) {
+  if (!entry) return null;
+  return {
+    id: entry.id ?? null,
+    title: firstText([entry.title, entry.chapter_title, entry.topic, entry.heading, entry.name, entry?.os4?.chapter_title, entry?.os4?.title, entry?.os4?.topic]) || null,
+    objective: firstText([entry.objective, entry?.os4?.objective]) || null,
+    chapterThesis: firstText([entry.chapter_thesis, entry?.os4?.chapter_thesis]) || null,
+    requiredFacts: Array.isArray(entry.required_facts) ? entry.required_facts : Array.isArray(entry?.os4?.required_facts) ? entry.os4.required_facts : [],
+    sourceNeeds: Array.isArray(entry.source_needs) ? entry.source_needs : Array.isArray(entry?.os4?.source_needs) ? entry.os4.source_needs : [],
+    contradictionChecks: Array.isArray(entry.contradiction_checks) ? entry.contradiction_checks : Array.isArray(entry?.os4?.contradiction_checks) ? entry.os4.contradiction_checks : [],
+    status: entry.status ?? null,
+  };
+}
 
 loadEnv(path.resolve(".env.local"));
 const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
@@ -88,11 +156,14 @@ if (chaptersError) throw chaptersError;
 const chapter = (chapters || []).find((row) => Number(row.chapter_number) === chapterNumber) || null;
 const previous = (chapters || []).find((row) => Number(row.chapter_number) === chapterNumber - 1) || null;
 const next = (chapters || []).find((row) => Number(row.chapter_number) === chapterNumber + 1) || null;
+const outlineEntry = outlineEntryFor(project, chapterNumber);
+const outlineTopicResolution = resolveOutlineTopic(outlineEntry);
 
 const usefulProjectHints = {};
 for (const [k, v] of Object.entries(project || {})) {
   if (!/outline|description|brief|synopsis|objective|premise|structure|chapter|topic|genre|audience|theme/i.test(k)) continue;
   if (v == null || v === "") continue;
+  if (k === "outline_12") continue;
   usefulProjectHints[k] = preview(v, 1400);
 }
 
@@ -119,7 +190,8 @@ const { data: activeJobs, error: activeError } = await s
 if (activeError) throw activeError;
 
 const titleTopic = chapter && !isGenericChapterTitle(chapter.title, chapterNumber) ? clean(chapter.title) : "";
-const topic = explicitTopic || titleTopic;
+const topic = explicitTopic || titleTopic || outlineTopicResolution.topic;
+const topicSource = explicitTopic ? "cli.--topic" : titleTopic ? "sections.title" : outlineTopicResolution.source;
 
 console.log("\n================================================");
 console.log(` GENELIBROS — RESEARCH CHAPTER ${chapterNumber} PREFLIGHT`);
@@ -145,8 +217,10 @@ console.log({
     words: words(next.content || ""),
     openingPreview: preview(String(next.content || "").slice(0,1200), 650),
   } : null,
+  outlineChapterHint: compactOutlineEntry(outlineEntry),
   projectHints: usefulProjectHints,
   resolvedTopic: topic || null,
+  resolvedTopicSource: topicSource || null,
   readyDossier: readyDossier || null,
   activeJobs: activeJobs || [],
   researchCreditGuard: true,
@@ -172,8 +246,7 @@ if (!chapter) {
   process.exit(11);
 }
 if (!topic) {
-  console.error("\nBLOCKED: el tema del capítulo no está definido. El título es genérico y el contenido no aporta un tema investigable.");
-  console.error(`Vuelve a ejecutar con --topic \"<tema real del Capítulo ${chapterNumber}>\" cuando el tema esté identificado.`);
+  console.error("\nBLOCKED: no se pudo resolver el tema desde título, outline ni --topic.");
   process.exit(12);
 }
 if (maxCalls < minimumBaseCalls) {
@@ -181,16 +254,19 @@ if (maxCalls < minimumBaseCalls) {
   process.exit(13);
 }
 if (!enqueue) {
-  console.log("\nPREFLIGHT OK. No se encoló nada. Añade --enqueue para crear el Research job; todavía serán 0 llamadas LLM.");
+  console.log("\nPREFLIGHT OK. Tema resuelto desde datos existentes. No se encoló nada.");
+  console.log("Añade --enqueue para crear el Research job; todavía serán 0 llamadas LLM.");
   process.exit(0);
 }
 
 const objective = explicitObjective || [
   `Construir un dossier factual y verificable para el Capítulo ${chapterNumber}: ${topic}.`,
+  outlineEntry?.objective ? `Objetivo editorial del outline: ${clean(outlineEntry.objective)}` : "",
+  outlineEntry?.os4?.chapter_thesis ? `Tesis del outline: ${clean(outlineEntry.os4.chapter_thesis)}` : "",
   "Priorizar fuentes oficiales, primarias, estadísticas, informes institucionales y corroboración independiente.",
   "Identificar cifras, fechas, instituciones, causalidades y contradicciones necesarias para escritura segura.",
   "No inventar hechos, referencias ni completar lagunas desde memoria.",
-].join(" ");
+].filter(Boolean).join(" ");
 
 const idempotencyKey = crypto
   .createHash("sha256")
@@ -209,6 +285,8 @@ const checkpoint = {
     maxSources,
     model: process.env.RESEARCH_DEEP_MODEL || process.env.REFINERY_DEEP_MODEL || process.env.OS4_DEEP_MODEL || "gemini-3.6-flash",
   },
+  outlineContext: compactOutlineEntry(outlineEntry),
+  topicSource,
 };
 
 const { data: job, error: insertError } = await s
