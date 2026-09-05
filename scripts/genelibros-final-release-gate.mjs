@@ -53,6 +53,7 @@ console.log(" ZERO LLM / ZERO PROVIDER CALLS");
 console.log("================================================");
 
 const requiredFiles = [
+  "scripts/prepare-production-runtime.mjs",
   "scripts/research-chapter-preflight.mjs",
   "scripts/research-topic-resolution-tests.mjs",
   "scripts/blueprint-recovery-v1.mjs",
@@ -92,10 +93,6 @@ if (forbidden.length) {
 console.log("[Genelibros] Seguridad Git: OK.");
 
 // Validate committed content, not installer-generated working-tree rewrites.
-// Several legacy patch installers intentionally rewrite tracked runtime files and
-// Windows may normalize LF/CRLF or EOF whitespace while doing so. A release gate
-// must judge the immutable commit, otherwise it can fail because of mutations
-// created by the gate itself. This remains 0 LLM / 0 provider calls.
 run("git", ["diff-tree", "--check", "--root", "HEAD"], "git diff-tree --check --root HEAD");
 const workingTreeBefore = capture("git", ["status", "--porcelain"])
   .split(/\r?\n/)
@@ -116,6 +113,10 @@ for (const route of requiredRoutes) {
 }
 console.log(`[Genelibros] Vercel rewrites críticos: ${requiredRoutes.length}/${requiredRoutes.length} OK.`);
 
+// Source of truth: execute the exact same deterministic preparation path used by Vercel.
+runNode("scripts/prepare-production-runtime.mjs");
+
+// Run every installer a second time to prove idempotence/fail-closed behavior.
 runNode("scripts/patch-research-gap-source-cap.mjs");
 runNode("scripts/patch-research-document-ingestion.mjs");
 runNode("scripts/patch-research-evidence-semantics.mjs");
@@ -162,6 +163,8 @@ console.log({
   committedWhitespace: "PASS",
   gitSecurity: "PASS",
   vercelRoutes: "PASS",
+  productionRuntimePrepare: "PASS",
+  patcherIdempotence: "PASS",
   blueprintRecoveryV1: "PASS",
   research: "PASS",
   productionV1: "PASS",
