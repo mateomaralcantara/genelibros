@@ -31,6 +31,19 @@ function isGenericChapterTitle(value, chapterNumber) {
   const normalized = clean(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   return !normalized || normalized === `capitulo ${chapterNumber}` || /^capitulo\s+\d+$/.test(normalized);
 }
+function parseJsonObject(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+function projectState(project) {
+  return parseJsonObject(project?.state);
+}
 function parseOutline(value) {
   if (Array.isArray(value)) return value;
   if (value && typeof value === "object") {
@@ -50,12 +63,30 @@ function parseOutline(value) {
   return [];
 }
 function outlineEntryFor(project, chapterNumber) {
-  const outline = parseOutline(project?.outline_12);
-  if (!outline.length) return null;
+  const state = projectState(project);
+  const candidates = [
+    [project?.outline_12, "project.outline_12"],
+    [state?.outline_12, "project.state.outline_12"],
+    [state?.outline12, "project.state.outline12"],
+  ];
   const expectedId = `outline_${String(chapterNumber).padStart(2, "0")}`.toLowerCase();
-  return outline.find((item) => clean(item?.id).toLowerCase() === expectedId)
-    || outline.find((item) => Number(item?.chapter_number ?? item?.chapterNumber ?? item?.number) === chapterNumber)
-    || outline[chapterNumber - 1]
+  for (const [raw, location] of candidates) {
+    const outline = parseOutline(raw);
+    if (!outline.length) continue;
+    const entry = outline.find((item) => clean(item?.id).toLowerCase() === expectedId)
+      || outline.find((item) => Number(item?.chapter_number ?? item?.chapterNumber ?? item?.number) === chapterNumber)
+      || outline[chapterNumber - 1]
+      || null;
+    if (entry) return { entry, location };
+  }
+  return { entry: null, location: null };
+}
+function stateChapterEntryFor(project, chapterNumber) {
+  const state = projectState(project);
+  const chapters = Array.isArray(state?.chapters) ? state.chapters : [];
+  if (!chapters.length) return null;
+  return chapters.find((item) => Number(item?.chapter_number ?? item?.chapterNumber ?? item?.number) === chapterNumber)
+    || chapters[chapterNumber - 1]
     || null;
 }
 function firstText(candidates) {
@@ -65,24 +96,34 @@ function firstText(candidates) {
   }
   return "";
 }
-function resolveOutlineTopic(entry) {
+function resolveOutlineTopic(entry, location = "outline") {
   if (!entry) return { topic: "", source: null };
   const named = [
-    [entry?.title, "outline.title"],
-    [entry?.chapter_title, "outline.chapter_title"],
-    [entry?.topic, "outline.topic"],
-    [entry?.heading, "outline.heading"],
-    [entry?.name, "outline.name"],
-    [entry?.os4?.chapter_title, "outline.os4.chapter_title"],
-    [entry?.os4?.title, "outline.os4.title"],
-    [entry?.os4?.topic, "outline.os4.topic"],
-    [entry?.objective, "outline.objective"],
-    [entry?.os4?.objective, "outline.os4.objective"],
-    [entry?.chapter_thesis, "outline.chapter_thesis"],
-    [entry?.os4?.chapter_thesis, "outline.os4.chapter_thesis"],
+    [entry?.title, `${location}.title`],
+    [entry?.chapter_title, `${location}.chapter_title`],
+    [entry?.topic, `${location}.topic`],
+    [entry?.heading, `${location}.heading`],
+    [entry?.name, `${location}.name`],
+    [entry?.os4?.chapter_title, `${location}.os4.chapter_title`],
+    [entry?.os4?.title, `${location}.os4.title`],
+    [entry?.os4?.topic, `${location}.os4.topic`],
+    [entry?.objective, `${location}.objective`],
+    [entry?.os4?.objective, `${location}.os4.objective`],
+    [entry?.chapter_thesis, `${location}.chapter_thesis`],
+    [entry?.os4?.chapter_thesis, `${location}.os4.chapter_thesis`],
   ];
   for (const [value, source] of named) {
     if (clean(value)) return { topic: clean(value), source };
+  }
+  return { topic: "", source: null };
+}
+function resolveStateChapterTopic(entry, chapterNumber) {
+  if (!entry) return { topic: "", source: null };
+  const candidates = [entry?.title, entry?.chapter_title, entry?.topic, entry?.heading, entry?.name];
+  for (const value of candidates) {
+    if (clean(value) && !isGenericChapterTitle(value, chapterNumber)) {
+      return { topic: clean(value), source: "project.state.chapters.title" };
+    }
   }
   return { topic: "", source: null };
 }
@@ -156,15 +197,30 @@ if (chaptersError) throw chaptersError;
 const chapter = (chapters || []).find((row) => Number(row.chapter_number) === chapterNumber) || null;
 const previous = (chapters || []).find((row) => Number(row.chapter_number) === chapterNumber - 1) || null;
 const next = (chapters || []).find((row) => Number(row.chapter_number) === chapterNumber + 1) || null;
-const outlineEntry = outlineEntryFor(project, chapterNumber);
-const outlineTopicResolution = resolveOutlineTopic(outlineEntry);
+const outlineResolution = outlineEntryFor(project, chapterNumber);
+const outlineEntry = outlineResolution.entry;
+const outlineTopicResolution = resolveOutlineTopic(outlineEntry, outlineResolution.location || "outline");
+const stateChapterEntry = stateChapterEntryFor(project, chapterNumber);
+const stateChapterTopicResolution = resolveStateChapterTopic(stateChapterEntry, chapterNumber);
+const state = projectState(project);
 
 const usefulProjectHints = {};
 for (const [k, v] of Object.entries(project || {})) {
   if (!/outline|description|brief|synopsis|objective|premise|structure|chapter|topic|genre|audience|theme/i.test(k)) continue;
   if (v == null || v === "") continue;
-  if (k === "outline_12") continue;
+  if (["outline_12", "state"].includes(k)) continue;
   usefulProjectHints[k] = preview(v, 1400);
+}
+for (const [k, v] of Object.entries({
+  book_topic: state?.book_topic,
+  audience: state?.audience,
+  tone_style: state?.tone_style,
+  dossier_one_liner: state?.dossier?.one_liner,
+  dossier_promise: state?.dossier?.promise,
+  dossier_positioning: state?.dossier?.positioning,
+})) {
+  if (v == null || v === "") continue;
+  usefulProjectHints[`state.${k}`] = preview(v, 1400);
 }
 
 const { data: readyDossier, error: dossierError } = await s
@@ -190,8 +246,14 @@ const { data: activeJobs, error: activeError } = await s
 if (activeError) throw activeError;
 
 const titleTopic = chapter && !isGenericChapterTitle(chapter.title, chapterNumber) ? clean(chapter.title) : "";
-const topic = explicitTopic || titleTopic || outlineTopicResolution.topic;
-const topicSource = explicitTopic ? "cli.--topic" : titleTopic ? "sections.title" : outlineTopicResolution.source;
+const topic = explicitTopic || titleTopic || outlineTopicResolution.topic || stateChapterTopicResolution.topic;
+const topicSource = explicitTopic
+  ? "cli.--topic"
+  : titleTopic
+    ? "sections.title"
+    : outlineTopicResolution.topic
+      ? outlineTopicResolution.source
+      : stateChapterTopicResolution.source;
 
 console.log("\n================================================");
 console.log(` GENELIBROS — RESEARCH CHAPTER ${chapterNumber} PREFLIGHT`);
@@ -217,7 +279,9 @@ console.log({
     words: words(next.content || ""),
     openingPreview: preview(String(next.content || "").slice(0,1200), 650),
   } : null,
+  outlineLocation: outlineResolution.location,
   outlineChapterHint: compactOutlineEntry(outlineEntry),
+  stateChapterHint: compactOutlineEntry(stateChapterEntry),
   projectHints: usefulProjectHints,
   resolvedTopic: topic || null,
   resolvedTopicSource: topicSource || null,
@@ -246,7 +310,7 @@ if (!chapter) {
   process.exit(11);
 }
 if (!topic) {
-  console.error("\nBLOCKED: no se pudo resolver el tema desde título, outline ni --topic.");
+  console.error("\nBLOCKED: no se pudo resolver el tema desde sections.title, project.outline_12, project.state.outline_12, project.state.chapters ni --topic.");
   process.exit(12);
 }
 if (maxCalls < minimumBaseCalls) {
@@ -263,6 +327,7 @@ const objective = explicitObjective || [
   `Construir un dossier factual y verificable para el Capítulo ${chapterNumber}: ${topic}.`,
   outlineEntry?.objective ? `Objetivo editorial del outline: ${clean(outlineEntry.objective)}` : "",
   outlineEntry?.os4?.chapter_thesis ? `Tesis del outline: ${clean(outlineEntry.os4.chapter_thesis)}` : "",
+  stateChapterEntry?.objective ? `Objetivo editorial persistido: ${clean(stateChapterEntry.objective)}` : "",
   "Priorizar fuentes oficiales, primarias, estadísticas, informes institucionales y corroboración independiente.",
   "Identificar cifras, fechas, instituciones, causalidades y contradicciones necesarias para escritura segura.",
   "No inventar hechos, referencias ni completar lagunas desde memoria.",
@@ -285,7 +350,7 @@ const checkpoint = {
     maxSources,
     model: process.env.RESEARCH_DEEP_MODEL || process.env.REFINERY_DEEP_MODEL || process.env.OS4_DEEP_MODEL || "gemini-3.6-flash",
   },
-  outlineContext: compactOutlineEntry(outlineEntry),
+  outlineContext: compactOutlineEntry(outlineEntry || stateChapterEntry),
   topicSource,
 };
 
