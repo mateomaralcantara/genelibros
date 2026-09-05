@@ -88,6 +88,19 @@ if (forbidden.length) {
 }
 console.log("[Genelibros] Seguridad Git: OK.");
 
+// Validate committed content, not installer-generated working-tree rewrites.
+// Several legacy patch installers intentionally rewrite tracked runtime files and
+// Windows may normalize LF/CRLF or EOF whitespace while doing so. A release gate
+// must judge the immutable commit, otherwise it can fail because of mutations
+// created by the gate itself. This remains 0 LLM / 0 provider calls.
+run("git", ["diff-tree", "--check", "--root", "HEAD"], "git diff-tree --check --root HEAD");
+const workingTreeBefore = capture("git", ["status", "--porcelain"])
+  .split(/\r?\n/)
+  .filter(Boolean);
+if (workingTreeBefore.length) {
+  console.log(`[Genelibros] INFO — working tree ya tenía ${workingTreeBefore.length} cambio(s) local(es); no bloquean la validación del commit.`);
+}
+
 const vercel = JSON.parse(fs.readFileSync(path.resolve("vercel.json"), "utf8"));
 const rewrites = Array.isArray(vercel?.rewrites) ? vercel.rewrites : [];
 const requiredRoutes = ["/api/deep-work-worker", "/api/deep-work-jobs", "/api/deep-work-apply", "/api/research-worker", "/api/research-jobs"];
@@ -125,7 +138,14 @@ runNode("scripts/deep-production-book-universal-v1-tests.mjs");
 
 runNpm(["run", "typecheck"]);
 runNpm(["run", "build"]);
-run("git", ["diff", "--check"], "git diff --check");
+
+const workingTreeAfter = capture("git", ["status", "--porcelain"])
+  .split(/\r?\n/)
+  .filter(Boolean);
+const generatedDelta = Math.max(0, workingTreeAfter.length - workingTreeBefore.length);
+if (generatedDelta > 0) {
+  console.log(`[Genelibros] INFO — los instaladores dejaron hasta ${generatedDelta} cambio(s) adicionales en el working tree; son locales y no alteran el commit validado.`);
+}
 
 console.log("\n================================================");
 console.log(" ✅ GENELIBROS — RELEASE CANDIDATE READY");
@@ -135,10 +155,12 @@ console.log({
   providerCalls: 0,
   typecheck: "PASS",
   build: "PASS",
+  committedWhitespace: "PASS",
   gitSecurity: "PASS",
   vercelRoutes: "PASS",
   research: "PASS",
   productionV1: "PASS",
   bookProductionV1: "PASS",
   universalBookV1: "PASS",
+  localWorkingTreeChanges: workingTreeAfter.length,
 });
