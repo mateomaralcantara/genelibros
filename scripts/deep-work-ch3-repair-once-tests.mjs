@@ -15,6 +15,8 @@ const checks = [
   ["restores persisted quality", prep.includes('.eq("artifact_type", "QUALITY")') && prep.includes("QUALITY REPORT")],
   ["exactly one direct Gemini repair call", (prep.match(/ai\.models\.generateContent\(/g) || []).length === 1],
   ["direct repair is plain text", prep.includes("NO JSON. NO fences") && prep.includes("const repairedText")],
+  ["Gemini 3 repair thinking kept minimal", prep.includes('const DIRECT_REPAIR_THINKING_LEVEL = "MINIMAL"') && prep.includes("thinkingLevel: DIRECT_REPAIR_THINKING_LEVEL")],
+  ["direct repair output budget raised to 48k", prep.includes("DEEP_DIRECT_REPAIR_MAX_OUTPUT_TOKENS || 48000") && prep.includes("maxOutputTokens: DIRECT_REPAIR_MAX_OUTPUT_TOKENS")],
   ["direct repair records one call", prep.includes("calls: 1") && prep.includes("usage.calls") && prep.includes("se esperaba 8")],
   ["direct repair artifact persisted", prep.includes('p_artifact_type: "REPAIR"') && prep.includes('p_label: "REPAIR_1_DIRECT"')],
   ["resumes exactly at quality", prep.includes('checkpoint: { version: "11C", step: "QUALITY" }')],
