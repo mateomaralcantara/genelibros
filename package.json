@@ -56,6 +56,8 @@
     "deep:prod:verify": "node scripts/deep-production-v1-tests.mjs && npm run typecheck",
     "deep:prod:book": "node scripts/run-deep-production-book-v1.mjs",
     "deep:prod:book:verify": "node scripts/deep-production-book-v1-tests.mjs && npm run deep:prod:verify",
+    "deep:prod:book:universal": "node scripts/run-deep-production-book-universal-v1.mjs",
+    "deep:prod:book:universal:verify": "node scripts/deep-production-book-universal-v1-tests.mjs && npm run research:11d:evidence-test && node scripts/research-credit-guard-tests.mjs && npm run deep:prod:verify",
     "deep:11c:verify": "npm run brain:11a:test && npm run deep:11c:test && npm run deep:11c:guard-test && npm run typecheck && npm run build",
     "research:11d:test": "node scripts/research-11d-tests.mjs",
     "research:11d:budget": "node scripts/research-budget-preview.mjs",
