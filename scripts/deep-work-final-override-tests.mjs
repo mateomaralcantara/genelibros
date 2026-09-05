@@ -16,6 +16,8 @@ const checks = [
   ["final job hard cap is seven", enqueue.includes("const MAX_CALLS = 7") && enqueue.includes("maxLlmCalls: MAX_CALLS")],
   ["final job is applyable improve", enqueue.includes('operation: "IMPROVE"') && !enqueue.includes('operation: "GENERATE"')],
   ["final job does not fake ready flag", enqueue.includes("dossierReadyHistorical") && enqueue.includes("researchEditorialOverride: true")],
+  ["final job resumes retry instead of duplicating", enqueue.includes('["RETRYING", "FAILED", "DEAD_LETTER"]') && enqueue.includes('status: "QUEUED"') && enqueue.includes("retry after model compatibility fix")],
+  ["final resume preserves checkpoint", enqueue.includes("resumeFromStep: resumed.checkpoint?.step") && !enqueue.includes('checkpoint: { version: "11C", step: "PLAN"')],
   ["one-command deep runner exists", runner.includes("deep:11c:dev") && runner.includes("deep:11c:worker") && runner.includes("/api/deep-work-worker")],
   ["auto apply requires approved 9.3", apply.includes('verdict !== "APPROVED"') && apply.includes("score < 9.3") && apply.includes("result.applyAllowed !== true")],
   ["auto apply protects source and length", apply.includes("SOURCE_CHANGED") && apply.includes("wc < 2300") && apply.includes("wc > 2700")],
