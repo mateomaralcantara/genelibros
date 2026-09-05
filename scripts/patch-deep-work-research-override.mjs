@@ -57,12 +57,27 @@ if (!worker.includes("DEEP_RESEARCH_EDITORIAL_OVERRIDE_V1_APPLIED")) {
   );
 }
 
+// Mantener el título editorial explícito del job final aunque la sección aún se llame "Capítulo 3".
+if (!worker.includes("DEEP_PREFERRED_TITLE_APPLIED")) {
+  const oldTitle = '    result.title = clean(target.title) || `Capítulo ${job.chapter_number}`;';
+  if (!worker.includes(oldTitle)) {
+    throw new Error("DEEP_RESEARCH_OVERRIDE_PATCH_INCOMPLETE: preferred title marker");
+  }
+  worker = worker.replace(
+    oldTitle,
+    '    // DEEP_PREFERRED_TITLE_APPLIED\n    result.title = clean(result.preferredTitle) || clean(target.title) || `Capítulo ${job.chapter_number}`;'
+  );
+  changed = true;
+}
+
 const required = [
   worker.includes("DEEP_RESEARCH_EDITORIAL_OVERRIDE_V1_APPLIED"),
   worker.includes('researchQuery.eq("id", dossierId)'),
   worker.includes("editorialOverride: Boolean"),
   worker.includes("result.researchDossierId || job.policy?.researchDossierId"),
   worker.includes("OVERRIDE EDITORIAL EXPLÍCITO"),
+  worker.includes("DEEP_PREFERRED_TITLE_APPLIED"),
+  worker.includes("clean(result.preferredTitle)"),
   worker.includes('clean(claim.status) === "VERIFIED"'),
   worker.includes("Boolean(claim.citationReady)"),
   worker.includes("GAPS ABIERTOS — NO convertirlos en afirmaciones completas"),
@@ -73,7 +88,7 @@ if (required.some((ok) => !ok)) {
 
 if (changed) {
   fs.writeFileSync(workerFile, worker, "utf8");
-  console.log("[Genelibros] DEEP RESEARCH OVERRIDE instalado: dossier explícito permitido sin falsificar ready_for_writing.");
+  console.log("[Genelibros] DEEP RESEARCH OVERRIDE instalado: dossier explícito + título editorial, sin falsificar ready_for_writing.");
 } else {
   console.log("[Genelibros] DEEP RESEARCH OVERRIDE ya estaba instalado.");
 }
