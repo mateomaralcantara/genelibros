@@ -9,7 +9,7 @@ let worker = fs.readFileSync(workerFile, "utf8").replace(/\r\n?/g, "\n");
 let runtimeChanged = false;
 let workerChanged = false;
 
-// RESEARCH_CREDIT_GUARD_V1.5
+// RESEARCH_CREDIT_GUARD_V1.6
 // Fail-closed + self-healing installer.
 // - Gemini Flash por defecto.
 // - 1 intento por JSON bajo guard.
@@ -19,6 +19,7 @@ let workerChanged = false;
 // - sin gap-loop automático después del primer dossier.
 // - criterios readyForWriting intactos.
 // - compatibilidad con esquema real: sections.chapter_number; NO order_index.
+// - Research reutiliza secretos existentes de Deep/Refinery/OS4 si no hay RESEARCH_WORKER_SECRET.
 
 function insertBefore(source, marker, block, alreadyMarker) {
   if (source.includes(alreadyMarker)) return { source, changed: false };
@@ -34,6 +35,17 @@ function insertAfterLineContaining(source, marker, block, alreadyMarker) {
   const eol = source.indexOf("\n", at);
   const pos = eol >= 0 ? eol + 1 : source.length;
   return { source: source.slice(0, pos) + block + (block.endsWith("\n") ? "" : "\n") + source.slice(pos), changed: true };
+}
+
+// -1) Reutilizar secreto existente: no exigir una variable nueva solo para Research.
+{
+  const desired = 'const WORKER_SECRET=process.env.RESEARCH_WORKER_SECRET||process.env.DEEP_WORKER_SECRET||process.env.REFINERY_WORKER_SECRET||process.env.OS4_WORKER_SECRET||"";';
+  const currentRe = /const\s+WORKER_SECRET\s*=\s*process\.env\.RESEARCH_WORKER_SECRET\s*\|\|\s*""\s*;/;
+  if (!worker.includes(desired) && currentRe.test(worker)) {
+    worker = worker.replace(currentRe, desired);
+    workerChanged = true;
+    console.log("[Genelibros] RESEARCH AUTH FIX: reutiliza worker secret existente si no hay RESEARCH_WORKER_SECRET.");
+  }
 }
 
 // 0) Compatibilidad del esquema: sections no tiene order_index.
@@ -126,6 +138,7 @@ if (!worker.includes("RESEARCH_CREDIT_GUARD_FIRST_PASS_COMPLETE") && worker.incl
 
 // Fail closed: nada se escribe si falta una pieza.
 const required = [
+  ["auth fallback", worker.includes("process.env.DEEP_WORKER_SECRET") && worker.includes("process.env.REFINERY_WORKER_SECRET") && worker.includes("process.env.OS4_WORKER_SECRET")],
   ["schema compatibility", !worker.includes("order_index")],
   ["runtime retry guard", runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS")],
   ["per-job budget", worker.includes("const researchBudgetGuard")],
@@ -141,5 +154,5 @@ if (runtimeChanged) fs.writeFileSync(runtimeFile, runtime, "utf8");
 if (workerChanged) fs.writeFileSync(workerFile, worker, "utf8");
 
 if (!runtimeChanged && !workerChanged) console.log("[Genelibros] RESEARCH CREDIT GUARD ya estaba instalado.");
-console.log("[Genelibros] RESEARCH CREDIT GUARD V1.5 COMPLETO: schema OK, Flash, queries<=5, sources<=6, base<=18 llamadas, sin gap-loop automático.");
+console.log("[Genelibros] RESEARCH CREDIT GUARD V1.6 COMPLETO: auth fallback + schema OK, Flash, queries<=5, sources<=6, base<=18 llamadas, sin gap-loop automático.");
 console.log("[Genelibros] Overrides por job: checkpoint.budgetGuard.maxCalls/maxQueries/maxSources/firstPassOnly.");
