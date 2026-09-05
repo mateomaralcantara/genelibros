@@ -45,6 +45,7 @@
     "deep:11c:export": "node scripts/export-deep-work-candidate.mjs",
     "deep:11c:apply-local-final": "node scripts/apply-deep-work-local-final.mjs",
     "deep:11c:budget": "node scripts/deep-work-budget-preview.mjs SUPREME",
+    "deep:11c:preflight": "node scripts/deep-work-chapter-preflight.mjs",
     "deep:11c:guard-test": "node scripts/patch-deep-work-v58.mjs && node scripts/patch-deep-work-credit-guard.mjs && node scripts/deep-work-credit-guard-tests.mjs",
     "deep:11c:dev": "node scripts/patch-deep-work-v58.mjs && node scripts/patch-deep-work-credit-guard.mjs && node scripts/run-vercel-dev-with-local-env.mjs",
     "deep:11c:worker": "node scripts/patch-deep-work-v58.mjs && node scripts/patch-deep-work-credit-guard.mjs && node scripts/run-deep-work-worker-local.mjs",
@@ -66,7 +67,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
-    "@tailwindcss/vite": "^4.1.18",
+    "@tailwindcss/vite": "^5.0.0",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.23",
