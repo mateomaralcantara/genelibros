@@ -22,6 +22,15 @@ function argValue(name, fallback = "") {
 }
 function hasFlag(name) { return process.argv.slice(2).includes(name); }
 function normalize(value) { return String(value || "").trim().replace(/\s+/g, " "); }
+function gapText(gap) {
+  return normalize(gap?.gap || gap?.question || gap?.description || gap?.text || "");
+}
+function gapRecommendedQueries(gap) {
+  if (Array.isArray(gap?.recommendedQueries)) return gap.recommendedQueries.map(normalize).filter(Boolean);
+  if (Array.isArray(gap?.suggestedQueries)) return gap.suggestedQueries.map(normalize).filter(Boolean);
+  const single = normalize(gap?.suggestedQuery || gap?.recommendedQuery || "");
+  return single ? [single] : [];
+}
 
 loadEnv(path.resolve(".env.local"));
 const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
@@ -74,7 +83,7 @@ if (!eligible.length) {
 const chosenGaps = eligible.slice(0, maxQueries);
 const gapQuestions = chosenGaps.map((gap, index) => ({
   id: `RGQ_${index + 1}`,
-  question: normalize(gap?.gap),
+  question: gapText(gap),
   importance: String(gap?.severity || "HIGH"),
   evidenceNeeded: [
     "Primary or official evidence whenever available",
@@ -83,6 +92,11 @@ const gapQuestions = chosenGaps.map((gap, index) => ({
     "Independent corroboration when the claim is material"
   ]
 }));
+
+if (gapQuestions.some((q) => !q.question)) {
+  console.error("[Genelibros] BLOCKED: un gap seleccionado no tiene texto compatible (gap/question/description/text). 0 llamadas LLM.");
+  process.exit(6);
+}
 
 const used = new Set();
 const gapQueries = [];
@@ -95,26 +109,26 @@ function addQuery(gap, gapIndex, raw) {
   gapQueries.push({
     id: `RGAP_${gapQueries.length + 1}`,
     query,
-    purpose: `Targeted resume: ${normalize(gap?.gap).slice(0, 500)}`,
+    purpose: `Targeted resume: ${gapText(gap).slice(0, 500)}`,
     questionIds: [gapQuestions[gapIndex]?.id].filter(Boolean)
   });
 }
 
 // Una query por gap primero, para no gastar tres búsquedas en un solo blocker.
 for (let i = 0; i < chosenGaps.length && gapQueries.length < maxQueries; i += 1) {
-  const recommended = Array.isArray(chosenGaps[i]?.recommendedQueries) ? chosenGaps[i].recommendedQueries : [];
-  addQuery(chosenGaps[i], i, recommended[0] || `${sourceJob.topic} ${chosenGaps[i]?.gap || ""} República Dominicana fuente oficial datos`);
+  const recommended = gapRecommendedQueries(chosenGaps[i]);
+  addQuery(chosenGaps[i], i, recommended[0] || `${sourceJob.topic} ${gapText(chosenGaps[i])} República Dominicana fuente oficial datos`);
 }
 // Si quedan huecos, usar siguientes recomendaciones sin duplicar.
 for (let round = 1; gapQueries.length < maxQueries && round < 5; round += 1) {
   for (let i = 0; i < chosenGaps.length && gapQueries.length < maxQueries; i += 1) {
-    const recommended = Array.isArray(chosenGaps[i]?.recommendedQueries) ? chosenGaps[i].recommendedQueries : [];
+    const recommended = gapRecommendedQueries(chosenGaps[i]);
     if (recommended[round]) addQuery(chosenGaps[i], i, recommended[round]);
   }
 }
 if (!gapQueries.length) {
   console.error("[Genelibros] BLOCKED: no fue posible construir queries determinísticas para los gaps.");
-  process.exit(6);
+  process.exit(7);
 }
 
 const verifiedClaims = (dossier.claims || []).filter((c) => c?.status === "VERIFIED" && Boolean(c?.citationReady)).length;
@@ -137,6 +151,7 @@ const idempotencyKey = crypto.createHash("sha256").update(JSON.stringify({
   maxQueries,
   maxSources,
   maxCalls,
+  gaps: chosenGaps.map((g) => ({ id: g?.id || null, severity: g?.severity || null, text: gapText(g) })),
   queries: gapQueries.map((q) => q.query)
 })).digest("hex");
 
@@ -160,7 +175,7 @@ console.log({
   totalGaps: allGaps.length,
   priority: critical.length ? "CRITICAL" : high.length ? "HIGH" : "MEDIUM",
   eligibleGaps: eligible.length,
-  selectedGaps: chosenGaps.map((g) => ({ id: g?.id || null, severity: g?.severity || null, gap: normalize(g?.gap) })),
+  selectedGaps: chosenGaps.map((g) => ({ id: g?.id || null, severity: g?.severity || null, gap: gapText(g) })),
   queries: gapQueries.map((q) => q.query),
   budget: { model, maxQueries, maxSources, maxCalls, firstPassOnly: true },
   llmCallsMadeByResumePreflight: 0
