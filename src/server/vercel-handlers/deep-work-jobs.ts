@@ -143,10 +143,19 @@ export default async function handler(req: any, res: any) {
     if (activeError) throw activeError;
     if (active?.[0]) return res.status(200).json({ ok: true, reused: true, job: active[0] });
 
+    const creditGuardEnabled = !["0", "false", "off"].includes(
+      String(process.env.DEEP_CREDIT_GUARD || "1").trim().toLowerCase(),
+    );
     const policyByDepth: Record<string, AnyRow> = {
       FAST: { maxRepairAttempts: 0, threshold: 8.6 },
       DEEP: { maxRepairAttempts: 1, threshold: 9.0 },
-      SUPREME: { maxRepairAttempts: 2, threshold: 9.3 },
+      SUPREME: {
+        maxRepairAttempts: creditGuardEnabled ? 1 : 2,
+        threshold: 9.3,
+        draftCount: creditGuardEnabled ? 2 : 3,
+        maxLlmCalls: Math.max(1, Number(process.env.DEEP_MAX_LLM_CALLS || 9)),
+        creditGuard: creditGuardEnabled,
+      },
       ULTRA: { maxRepairAttempts: 3, threshold: 9.5 },
     };
 
@@ -180,6 +189,15 @@ export default async function handler(req: any, res: any) {
           repairAttempts: 0,
           artifactIds: [],
           usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, calls: 0 },
+          budgetGuard: depth === "SUPREME" && creditGuardEnabled
+            ? {
+                enabled: true,
+                maxCalls: Math.max(1, Number(process.env.DEEP_MAX_LLM_CALLS || 9)),
+                maxRepairAttempts: 1,
+                draftCount: 2,
+                threshold: 9.3,
+              }
+            : { enabled: false },
         },
         policy: policyByDepth[depth],
         attempts: 0,
