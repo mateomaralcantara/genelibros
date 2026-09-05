@@ -66,7 +66,14 @@ check("Dossier evidenceScore",runtime.includes("evidenceScore"));
 check("Dossier factualConfidenceScore",runtime.includes("factualConfidenceScore"));
 check("Dossier readyForWriting",runtime.includes("readyForWriting"));
 check("Parser JSON balanceado",runtime.includes("balancedJson"));
-check("Retry JSON truncado",runtime.includes("attempt <= 3"));
+check(
+  "Retry JSON truncado bajo Credit Guard",
+  runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS") &&
+  runtime.includes("researchGenerateMaxAttempts") &&
+  runtime.includes('process.env.RESEARCH_CREDIT_GUARD || "1"') &&
+  runtime.includes('process.env.RESEARCH_GENERATE_MAX_ATTEMPTS || 1') &&
+  runtime.includes("attempt >= researchGenerateMaxAttempts")
+);
 check("Max output 32768",runtime.includes("32768"));
 for(const step of ["INIT","STRATEGY","QUERIES","DISCOVER","RANK","EXTRACT","EVIDENCE","CLAIMS","CONTRADICTIONS","VERIFY","CITATIONS","GAPS","DOSSIER","PERSIST"])check(`Worker procesa ${step}`,worker.includes(`checkpoint.step===\"${step}\"`)||worker.includes(`checkpoint.step === \"${step}\"`));
 check("11D.3 procesa GAP_DISCOVER",worker.includes('checkpoint.step==="GAP_DISCOVER"'));
