@@ -17,6 +17,7 @@ const checks = [
   ["single JSON attempt default", runtime.includes("DEEP_GENERATE_MAX_ATTEMPTS || 1")],
   ["V5.8 deterministic second prune", runtime.includes("CREDIT_GUARD_V2_DETERMINISTIC_SECOND_PRUNE")],
   ["worker hard call cap", worker.includes("CREDIT_BUDGET_EXHAUSTED") && worker.includes("DEEP_MAX_LLM_CALLS")],
+  ["budget quality snapshot typed", worker.includes("const priorQuality: AnyRow")],
   ["blind repair blocked", worker.includes("CREDIT_GUARD: el juez no produjo requiredRepairs")],
   ["worker carries context to repair", worker.includes("context: result.context") && worker.includes("researchContext: result.researchContext")],
   ["dev installs guard before server", String(pkg.scripts?.["deep:11c:dev"] || "").includes("patch-deep-work-credit-guard.mjs")],
