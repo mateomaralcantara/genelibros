@@ -23,9 +23,18 @@ function argValue(name, fallback = "") {
   return i >= 0 && args[i + 1] ? clean(args[i + 1]) : fallback;
 }
 function hasFlag(name) { return process.argv.slice(2).includes(name); }
+function normalizeChapterTitle(value) {
+  return clean(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/^capitulo\s+\d+\s*[:\-–—.]?\s*/i, "")
+    .trim();
+}
 function isGenericTitle(value, chapter) {
-  const n = clean(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  if (!n || n === `capitulo ${chapter}` || /^capitulo\s+\d+$/.test(n)) return true;
+  const raw = clean(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const n = normalizeChapterTitle(value);
+  if (!n || raw === `capitulo ${chapter}` || /^capitulo\s+\d+$/.test(raw)) return true;
   return /^(panorama general|historia y evolucion|conceptos clave|actores y dinamicas|mecanismos y procesos|casos y ejemplos|impactos y consecuencias|estrategias y herramientas|errores comunes y mitos|etica y riesgos|futuro y escenarios|plan de accion y cierre)(\b|\s|—|-)/i.test(n);
 }
 function needsBlueprint(project, chapterCount) {
