@@ -4,6 +4,8 @@ import path from "node:path";
 const runtime = fs.readFileSync(path.resolve("src/server/research-intelligence-runtime.ts"), "utf8");
 const worker = fs.readFileSync(path.resolve("src/server/vercel-handlers/research-worker.ts"), "utf8");
 const preflight = fs.readFileSync(path.resolve("scripts/research-chapter-preflight.mjs"), "utf8");
+const localWorkerRunner = fs.readFileSync(path.resolve("scripts/run-research-worker-local.mjs"), "utf8");
+const researchDevRunner = fs.readFileSync(path.resolve("scripts/run-research-vercel-dev-with-local-env.mjs"), "utf8");
 const pkg = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
 
 const checks = [
@@ -23,6 +25,9 @@ const checks = [
   ["ready criteria coverage intact", runtime.includes("coverage>=7.5")],
   ["ready criteria factual confidence intact", runtime.includes("factual>=7.5")],
   ["worker command installs research guard", String(pkg.scripts?.["research:11d:worker"] || "").includes("patch-research-credit-guard.mjs")],
+  ["research worker loads .env.local", localWorkerRunner.includes('loadEnv(path.resolve(".env.local"))') && localWorkerRunner.includes("RESEARCH_WORKER_SECRET")],
+  ["research dev requires research secret", researchDevRunner.includes('["RESEARCH_WORKER_SECRET"]') && researchDevRunner.includes("0 llamadas LLM realizadas")],
+  ["research dev uses dedicated launcher", String(pkg.scripts?.["research:11d:dev"] || "").includes("run-research-vercel-dev-with-local-env.mjs")],
 ];
 
 let failed = 0;
