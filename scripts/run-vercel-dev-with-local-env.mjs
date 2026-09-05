@@ -30,6 +30,23 @@ const requiredGroups = [
 ];
 
 const merged = { ...process.env, ...localEnv };
+
+function isLegacyFlash(value) {
+  return /^(?:models\/)?gemini-2\.5-flash$/i.test(String(value || "").trim());
+}
+
+// Compatibilidad Google 2026: gemini-2.5-flash ya no está disponible para
+// cuentas nuevas. Normalizamos incluso si el valor legacy viene de .env.local.
+if (!String(merged.DEEP_BUDGET_MODEL || "").trim() || isLegacyFlash(merged.DEEP_BUDGET_MODEL)) {
+  merged.DEEP_BUDGET_MODEL = "gemini-3.6-flash";
+}
+if (!String(merged.DEEP_FAST_MODEL || "").trim() || isLegacyFlash(merged.DEEP_FAST_MODEL)) {
+  merged.DEEP_FAST_MODEL = "gemini-3.6-flash";
+}
+for (const key of ["DEEP_REPAIR_MODEL", "DEEP_REPAIR_DEEP_MODEL"]) {
+  if (isLegacyFlash(merged[key])) merged[key] = "gemini-3.6-flash";
+}
+
 const missing = requiredGroups
   .filter((group) => !group.some((key) => String(merged[key] || "").trim()))
   .map((group) => group.join("/"));
@@ -42,6 +59,7 @@ if (missing.length) {
 
 console.log("[Genelibros] .env.local cargado en el proceso de Vercel Dev.");
 console.log("[Genelibros] Variables sensibles detectadas sin imprimir sus valores.");
+console.log(`[Genelibros] Deep budget model efectivo: ${merged.DEEP_BUDGET_MODEL}`);
 console.log("[Genelibros] Iniciando http://localhost:3000 ...\n");
 
 // Windows no ejecuta de forma fiable wrappers .cmd directamente mediante
