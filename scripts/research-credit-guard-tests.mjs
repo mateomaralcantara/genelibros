@@ -10,6 +10,8 @@ const checks = [
   ["research uses Flash default", runtime.includes('"gemini-3.6-flash"')],
   ["single JSON attempt under guard", runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS || 1")],
   ["sections schema uses chapter_number only", !worker.includes("order_index") && !preflight.includes("order_index") && worker.includes('eq("chapter_number",job.chapter_number)')],
+  ["preflight resolves exact outline chapter", preflight.includes("outlineEntryFor(project, chapterNumber)") && preflight.includes("outlineChapterHint")],
+  ["preflight topic can come from outline", preflight.includes("outlineTopicResolution.topic") && preflight.includes("resolvedTopicSource")],
   ["worker per-job budget guard", worker.includes("const researchBudgetGuard")],
   ["worker hard call cap", worker.includes("RESEARCH_CREDIT_BUDGET_EXHAUSTED")],
   ["query cap installed", worker.includes("RESEARCH_QUERY_CAP_APPLIED") && worker.includes("out.queries.slice(0,researchMaxQueries)") && worker.includes("researchMaxQueries")],
