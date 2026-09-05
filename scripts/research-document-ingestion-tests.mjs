@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { PDFParse } from "pdf-parse";
 
 const moduleText = fs.readFileSync("src/server/research-document-ingestion.ts", "utf8");
 const patchText = fs.readFileSync("scripts/patch-research-document-ingestion.mjs", "utf8");
@@ -12,7 +12,7 @@ function check(name, ok) {
 }
 
 check("SheetJS XLS/XLSX import exists", moduleText.includes('from "xlsx"'));
-check("PDF.js import exists", moduleText.includes('pdfjs-dist/legacy/build/pdf.mjs'));
+check("pdf-parse import exists", moduleText.includes('from "pdf-parse"'));
 check("legacy XLS detection exists", moduleText.includes('/\\.(xls|xlsx|xlsm|xlsb)$/'));
 check("PDF detection exists", moduleText.includes('type === "application/pdf"'));
 check("document default max is 25MB", moduleText.includes("25 * 1024 * 1024"));
@@ -20,8 +20,8 @@ check("document hard max is 100MB", moduleText.includes("100 * 1024 * 1024"));
 check("spreadsheet formulas are disabled", moduleText.includes("cellFormula: false"));
 check("spreadsheet rows are capped", moduleText.includes("sheetRows: limits.maxRowsPerSheet"));
 check("spreadsheet sheets are capped", moduleText.includes("slice(0, limits.maxSheets)"));
-check("PDF eval is disabled", moduleText.includes("isEvalSupported: false"));
-check("PDF pages are capped", moduleText.includes("Math.min(pdf.numPages, limits.maxPdfPages)"));
+check("PDF pages are capped", moduleText.includes("first: limits.maxPdfPages"));
+check("PDF parser is destroyed", moduleText.includes("parser.destroy()"));
 check("runtime patch preserves public URL validation", patchText.includes("await assertPublicUrl(current)"));
 check("runtime patch preserves redirect validation", patchText.includes("MAX_REDIRECTS"));
 check("runtime patch has binary streaming cap", patchText.includes("readResponseBytesLimited"));
@@ -47,20 +47,13 @@ check("real legacy XLS parses locally", parsedCsv.includes("87944.3") && parsedC
 const pdfWriter = new jsPDF();
 pdfWriter.text("Subsidio electrico RD 103231.3 millones", 10, 20);
 const pdfBytes = new Uint8Array(pdfWriter.output("arraybuffer"));
-const loadingTask = getDocument({
-  data: pdfBytes,
-  isEvalSupported: false,
-  useSystemFonts: false,
-  useWorkerFetch: false,
-});
-const pdf = await loadingTask.promise;
+const parser = new PDFParse({ data: pdfBytes });
 let pdfText = "";
 try {
-  const page = await pdf.getPage(1);
-  const content = await page.getTextContent();
-  pdfText = content.items.map((item) => typeof item?.str === "string" ? item.str : "").join(" ");
+  const result = await parser.getText({ first: 1 });
+  pdfText = String(result?.text || "");
 } finally {
-  await pdf.destroy().catch(() => undefined);
+  await parser.destroy().catch(() => undefined);
 }
 check("real PDF text parses locally", pdfText.includes("103231.3"));
 
