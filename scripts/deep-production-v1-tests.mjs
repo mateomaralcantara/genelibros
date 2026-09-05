@@ -50,6 +50,7 @@ const checks = [
   ["chapter auto-selects ready research", chapter.includes('.eq("ready_for_writing", true)')],
   ["editorial override is explicit", chapter.includes("--allow-editorial-override") && chapter.includes("researchEditorialOverride")],
   ["no-research mode is explicit", chapter.includes("--allow-no-research")],
+  ["technical retry requires explicit flag", chapter.includes("--resume-technical") && chapter.includes("retry técnico EXPLÍCITO") && chapter.includes("No puede reactivarse")],
   ["preflight is zero-LLM", !chapter.includes("GoogleGenAI") && !chapter.includes("generateContent(")],
   ["enqueue is idempotent", chapter.includes("este capítulo/configuración ya tiene job idempotente") && chapter.includes("no se crea otro")],
   ["generic scripts contain no Chapter 3 IDs", forbiddenSpecifics.every((value) => !genericBundle.includes(value))],
