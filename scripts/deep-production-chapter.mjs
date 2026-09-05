@@ -59,6 +59,7 @@ const operation = clean(argValue("--operation", "IMPROVE")).toUpperCase();
 const enqueue = hasFlag("--enqueue");
 const allowEditorialOverride = hasFlag("--allow-editorial-override");
 const allowNoResearch = hasFlag("--allow-no-research");
+const resumeTechnical = hasFlag("--resume-technical");
 
 if (!projectId) {
   console.error("[Genelibros] Production V1: falta --project <uuid>.");
@@ -188,6 +189,7 @@ console.log({
   dossierReadyForWriting: dossier ? Boolean(dossier.ready_for_writing) : null,
   editorialOverride,
   allowNoResearch,
+  resumeTechnical,
   researchMetrics: metrics,
   threshold: QUALITY_THRESHOLD,
   drafts: DRAFT_COUNT,
@@ -203,6 +205,8 @@ console.log({
     calls: Number(existing.result?.usage?.calls || 0),
     quality: existing.result?.quality?.overallScore ?? null,
     verdict: existing.result?.quality?.verdict ?? null,
+    repairAttempts: Number(existing.result?.repairAttempts || 0),
+    directRepairInvocations: Number(existing.result?.budgetGuard?.directRepairInvocations || 0),
   } : null,
   activeOtherJobs: activeOther.map((job) => ({ id: job.id, status: job.status, progress: job.progress })),
   llmCallsMadeByPreflight: 0,
@@ -215,8 +219,22 @@ if (activeOther.length) {
 
 if (existing) {
   const status = clean(existing.status).toUpperCase();
+  const existingVerdict = clean(existing.result?.quality?.verdict).toUpperCase();
   const resumable = ["RETRYING", "FAILED", "DEAD_LETTER"].includes(status);
+  const hasFinalRepairHistory =
+    Number(existing.result?.repairAttempts || 0) > 0 ||
+    Number(existing.result?.budgetGuard?.directRepairInvocations || 0) > 0;
+
   if (resumable && enqueue) {
+    if (hasFinalRepairHistory) {
+      console.error("[Genelibros] Production V1 bloqueado: este job ya entró en reparación final. No puede reactivarse con deep:prod:chapter porque eso podría repetir una llamada pagada. Inspecciona el job; no hay retry automático.");
+      process.exit(12);
+    }
+    if (!resumeTechnical) {
+      console.error("[Genelibros] Production V1 bloqueado: el job está en fallo técnico. Para reanudarlo debes pedirlo explícitamente con --resume-technical. Repetir el comando normal NO vuelve a cobrar.");
+      process.exit(13);
+    }
+
     const now = new Date().toISOString();
     const { data: resumed, error: resumeError } = await s
       .from("deep_work_jobs")
@@ -237,15 +255,21 @@ if (existing) {
       .select("id,status,progress,checkpoint,result,policy")
       .single();
     if (resumeError || !resumed) throw resumeError || new Error("No se pudo reactivar el job Production V1 existente.");
-    console.log("\n[Genelibros] Production V1: job técnico existente reactivado; no se duplicó.");
+    console.log("\n[Genelibros] Production V1: retry técnico EXPLÍCITO reactivado; no se duplicó el job.");
     console.log({
       jobId: resumed.id,
       status: resumed.status,
       resumeFromStep: resumed.checkpoint?.step || null,
       callsAlreadyRecorded: Number(resumed.result?.usage?.calls || 0),
       hardCap: Number(resumed.policy?.maxLlmCalls || FIRST_PASS_MAX_LLM_CALLS),
+      explicitTechnicalResume: true,
     });
     process.exit(0);
+  }
+
+  if (enqueue && status === "COMPLETED" && existingVerdict === "REJECTED") {
+    console.error("[Genelibros] Production V1: el job ya terminó REJECTED. No se regenera ni se reencola. Usa deep:prod:repair para la única reparación explícita.");
+    process.exit(14);
   }
 
   console.log("\n[Genelibros] Production V1: este capítulo/configuración ya tiene job idempotente; no se crea otro.");
@@ -258,9 +282,11 @@ if (existing) {
     quality: existing.result?.quality?.overallScore ?? null,
     verdict: existing.result?.quality?.verdict ?? null,
     applyAllowed: existing.result?.applyAllowed ?? false,
-    nextAction: status === "COMPLETED" && clean(existing.result?.quality?.verdict).toUpperCase() === "REJECTED"
+    nextAction: status === "COMPLETED" && existingVerdict === "REJECTED"
       ? "Usar deep:prod:repair con este job; no regenerar el capítulo."
-      : "Reutilizar este job.",
+      : resumable
+        ? "Usar --resume-technical solo después de revisar el fallo."
+        : "Reutilizar este job.",
   });
   process.exit(0);
 }
@@ -315,6 +341,7 @@ const result = {
     threshold: QUALITY_THRESHOLD,
     firstPassOnly: true,
     automaticRepairCalls: 0,
+    directRepairInvocations: 0,
   },
 };
 
@@ -358,5 +385,6 @@ console.log({
   threshold: QUALITY_THRESHOLD,
   hardCap: FIRST_PASS_MAX_LLM_CALLS,
   automaticRepairCalls: 0,
+  directRepairInvocations: 0,
   llmCallsMadeByEnqueue: 0,
 });
