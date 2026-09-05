@@ -41,6 +41,7 @@ if (!url || !key) {
 }
 
 const sourceJobId = argValue("--from-job", process.env.RESEARCH_RESUME_FROM_JOB || "b69bdfeb-e024-4c1e-99ab-918a3e0e6f6b");
+const explicitQuery = normalize(argValue("--query", ""));
 const maxQueries = Math.max(1, Math.min(3, Number(argValue("--max-queries", "3")) || 3));
 const maxSources = Math.max(1, Math.min(3, Number(argValue("--max-sources", "3")) || 3));
 const maxCalls = Math.max(1, Math.min(11, Number(argValue("--max-calls", "11")) || 11));
@@ -114,6 +115,10 @@ function addQuery(gap, gapIndex, raw) {
   });
 }
 
+if (explicitQuery) {
+  addQuery(chosenGaps[0], 0, explicitQuery);
+}
+
 // Una query por gap primero, para no gastar tres búsquedas en un solo blocker.
 for (let i = 0; i < chosenGaps.length && gapQueries.length < maxQueries; i += 1) {
   const recommended = gapRecommendedQueries(chosenGaps[i]);
@@ -151,6 +156,7 @@ const idempotencyKey = crypto.createHash("sha256").update(JSON.stringify({
   maxQueries,
   maxSources,
   maxCalls,
+  explicitQuery: explicitQuery || null,
   gaps: chosenGaps.map((g) => ({ id: g?.id || null, severity: g?.severity || null, text: gapText(g) })),
   queries: gapQueries.map((q) => q.query)
 })).digest("hex");
@@ -176,6 +182,7 @@ console.log({
   priority: critical.length ? "CRITICAL" : high.length ? "HIGH" : "MEDIUM",
   eligibleGaps: eligible.length,
   selectedGaps: chosenGaps.map((g) => ({ id: g?.id || null, severity: g?.severity || null, gap: gapText(g) })),
+  explicitQuery: explicitQuery || null,
   queries: gapQueries.map((q) => q.query),
   budget: { model, maxQueries, maxSources, maxCalls, firstPassOnly: true },
   llmCallsMadeByResumePreflight: 0
