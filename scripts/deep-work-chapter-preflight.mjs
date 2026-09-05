@@ -35,6 +35,7 @@ if (!url || !key) {
 const sourceJobId = argValue("--from-job", process.env.DEEP_SOURCE_JOB_ID || "");
 const chapterNumber = Math.max(1, Number(argValue("--chapter", "3")) || 3);
 const targetWords = Math.max(500, Math.min(12000, Number(argValue("--target", "2500")) || 2500));
+const requestedMaxCalls = Math.max(1, Math.min(9, Number(argValue("--max-calls", "7")) || 7));
 const enqueue = hasFlag("--enqueue");
 const allowNoResearch = hasFlag("--allow-no-research");
 const operation = String(argValue("--operation", "IMPROVE")).toUpperCase();
@@ -105,7 +106,7 @@ const { data: research, error: researchError } = await s
 if (researchError) throw researchError;
 
 const creditGuard = !["0", "false", "off"].includes(String(process.env.DEEP_CREDIT_GUARD || "1").trim().toLowerCase());
-const maxCalls = Math.max(1, Number(process.env.DEEP_MAX_LLM_CALLS || 9));
+const maxCalls = requestedMaxCalls;
 const currentWords = words(section?.content || "");
 
 console.log("\n==============================================");
@@ -134,6 +135,7 @@ console.log({
   drafts: creditGuard ? 2 : 3,
   maxRepairAttempts: creditGuard ? 1 : 2,
   hardLlmCallCap: maxCalls,
+  firstPassOnly: maxCalls === 7,
   llmCallsMadeByPreflight: 0,
 });
 
@@ -168,6 +170,7 @@ const policy = {
   draftCount: 2,
   maxLlmCalls: maxCalls,
   creditGuard: true,
+  firstPassOnly: maxCalls === 7,
 };
 
 const { data: job, error: insertError } = await s
@@ -206,6 +209,7 @@ const { data: job, error: insertError } = await s
         maxRepairAttempts: 1,
         draftCount: 2,
         threshold: 9.3,
+        firstPassOnly: maxCalls === 7,
       },
     },
     policy,
@@ -223,3 +227,6 @@ console.log(" JOB ENCOLADO — TODAVÍA 0 LLAMADAS LLM");
 console.log("==============================================");
 console.log(job);
 console.log("\nNo se ejecutará ninguna llamada hasta que inicies deep:11c:worker.");
+if (maxCalls === 7) {
+  console.log("Este job se detendrá después del primer QUALITY si necesita REPAIR; no gastará las llamadas 8-9 sin revisión.");
+}
