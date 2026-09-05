@@ -3,11 +3,13 @@ import path from "node:path";
 
 const runtime = fs.readFileSync(path.resolve("src/server/research-intelligence-runtime.ts"), "utf8");
 const worker = fs.readFileSync(path.resolve("src/server/vercel-handlers/research-worker.ts"), "utf8");
+const preflight = fs.readFileSync(path.resolve("scripts/research-chapter-preflight.mjs"), "utf8");
 const pkg = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
 
 const checks = [
   ["research uses Flash default", runtime.includes('"gemini-3.6-flash"')],
   ["single JSON attempt under guard", runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS || 1")],
+  ["sections schema uses chapter_number only", !worker.includes("order_index") && !preflight.includes("order_index") && worker.includes('eq("chapter_number",job.chapter_number)')],
   ["worker per-job budget guard", worker.includes("const researchBudgetGuard")],
   ["worker hard call cap", worker.includes("RESEARCH_CREDIT_BUDGET_EXHAUSTED")],
   ["query cap installed", worker.includes("RESEARCH_QUERY_CAP_APPLIED") && worker.includes("out.queries.slice(0,researchMaxQueries)") && worker.includes("researchMaxQueries")],
