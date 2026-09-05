@@ -55,6 +55,9 @@ console.log("================================================");
 const requiredFiles = [
   "scripts/research-chapter-preflight.mjs",
   "scripts/research-topic-resolution-tests.mjs",
+  "scripts/blueprint-recovery-v1.mjs",
+  "scripts/blueprint-recovery-v1-tests.mjs",
+  "scripts/run-genelibros-book-final-v1.mjs",
   "scripts/deep-production-v1-contract.mjs",
   "scripts/run-deep-production-v1.mjs",
   "scripts/run-deep-production-repair-v1.mjs",
@@ -125,6 +128,7 @@ runNode("scripts/patch-deep-work-longform-text.mjs");
 runNode("scripts/patch-deep-work-research-override.mjs");
 
 runNode("scripts/research-topic-resolution-tests.mjs");
+runNode("scripts/blueprint-recovery-v1-tests.mjs");
 runNode("scripts/research-document-ingestion-tests.mjs");
 runNode("scripts/research-evidence-semantics-tests.mjs");
 runNode("scripts/research-credit-guard-tests.mjs");
@@ -158,6 +162,7 @@ console.log({
   committedWhitespace: "PASS",
   gitSecurity: "PASS",
   vercelRoutes: "PASS",
+  blueprintRecoveryV1: "PASS",
   research: "PASS",
   productionV1: "PASS",
   bookProductionV1: "PASS",
