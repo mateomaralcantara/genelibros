@@ -29,6 +29,7 @@ const DOSSIER_ID = "9ba3ef8e-f4ea-46c4-913d-42173b5ebcb2";
 const CHAPTER = 3;
 const TARGET_WORDS = 2500;
 const MAX_CALLS = 7;
+const FINAL_TITLE = "Qué funciona, qué no y qué podría funcionar";
 const FINAL_MARKER = `FINAL_CH3_DOSSIER:${DOSSIER_ID}`;
 
 const s = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -110,13 +111,20 @@ if (priorError) throw priorError;
 const existingFinal = (prior || []).find((j) => clean(j.objective).includes(FINAL_MARKER));
 if (existingFinal) {
   console.log("[Genelibros] Job final del Capítulo 3 ya existe; no se duplica:");
-  console.log({ id: existingFinal.id, status: existingFinal.status, progress: existingFinal.progress, quality: existingFinal.result?.quality?.score ?? null });
+  console.log({
+    id: existingFinal.id,
+    status: existingFinal.status,
+    progress: existingFinal.progress,
+    quality: existingFinal.result?.quality?.overallScore ?? null,
+    verdict: existingFinal.result?.quality?.verdict ?? null,
+    applyAllowed: existingFinal.result?.applyAllowed ?? false,
+  });
   process.exit(0);
 }
 
 const objective = [
   FINAL_MARKER,
-  "TÍTULO EDITORIAL: Qué funciona, qué no y qué podría funcionar.",
+  `TÍTULO EDITORIAL: ${FINAL_TITLE}.`,
   "Generar el Capítulo 3 completo, documental, analítico y accesible, objetivo aproximado 2500 palabras.",
   "Usar EXCLUSIVAMENTE claims VERIFIED + citationReady del dossier explícito para cifras, fechas, costos, porcentajes, instituciones y causalidades.",
   "Los gaps CRITICAL/HIGH/MEDIUM del dossier son límites editoriales: no inventarlos, no completarlos por inferencia y no presentarlos como hechos resueltos.",
@@ -141,14 +149,14 @@ const result = {
   projectId: sourceJob.project_id,
   projectTitle: "La Factura Invisible",
   targetType: "CHAPTER",
-  operation: "GENERATE",
+  operation: "IMPROVE",
   chapterNumber: CHAPTER,
   sectionId: section.id,
   depth: "SUPREME",
   objective,
   targetWords: TARGET_WORDS,
-  title: "Qué funciona, qué no y qué podría funcionar",
-  preferredTitle: "Qué funciona, qué no y qué podría funcionar",
+  title: FINAL_TITLE,
+  preferredTitle: FINAL_TITLE,
   drafts: [],
   repairAttempts: 0,
   artifactIds: [],
@@ -172,7 +180,7 @@ const { data: job, error: insertError } = await s
     user_id: sourceJob.user_id,
     project_id: sourceJob.project_id,
     target_type: "CHAPTER",
-    operation: "GENERATE",
+    operation: "IMPROVE",
     depth: "SUPREME",
     chapter_number: CHAPTER,
     section_id: section.id,
