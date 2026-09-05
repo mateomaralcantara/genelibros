@@ -189,3 +189,6 @@ patch_vite_gemini_env.py
 # Historial Git externo / dumps
 *.dump
 *.sql.backup
+.vercel
+
+.tools/

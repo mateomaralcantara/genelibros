@@ -1,0 +1,16 @@
+export * from "./types";
+export * from "./client";
+
+export const RESEARCH_11D_READY_AGENTS = [
+  "RESEARCH_STRATEGIST",
+  "QUERY_ARCHITECT",
+  "SOURCE_HUNTER",
+  "WEB_EXTRACTOR",
+  "SOURCE_RANKER",
+  "EVIDENCE_ANALYST",
+  "CLAIM_BUILDER",
+  "CONTRADICTION_ENGINE",
+  "FACT_VERIFIER",
+  "CITATION_AUDITOR",
+  "RESEARCH_GAP_DETECTOR",
+] as const;

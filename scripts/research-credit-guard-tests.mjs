@@ -1,0 +1,48 @@
+import fs from "node:fs";
+import path from "node:path";
+
+const runtime = fs.readFileSync(path.resolve("src/server/research-intelligence-runtime.ts"), "utf8");
+const worker = fs.readFileSync(path.resolve("src/server/vercel-handlers/research-worker.ts"), "utf8");
+const preflight = fs.readFileSync(path.resolve("scripts/research-chapter-preflight.mjs"), "utf8");
+const localWorkerRunner = fs.readFileSync(path.resolve("scripts/run-research-worker-local.mjs"), "utf8");
+const researchDevRunner = fs.readFileSync(path.resolve("scripts/run-research-vercel-dev-with-local-env.mjs"), "utf8");
+const resume = fs.readFileSync(path.resolve("scripts/research-resume-gaps.mjs"), "utf8");
+const pkg = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
+
+const checks = [
+  ["research uses Flash default", runtime.includes('"gemini-3.6-flash"')],
+  ["single JSON attempt under guard", runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS || 1")],
+  ["sections schema uses chapter_number only", !worker.includes("order_index") && !preflight.includes("order_index") && worker.includes('eq("chapter_number",job.chapter_number)')],
+  ["preflight resolves exact outline chapter", preflight.includes("outlineEntryFor(project, chapterNumber)") && preflight.includes("outlineChapterHint")],
+  ["preflight topic can come from outline", preflight.includes("outlineTopicResolution.topic") && preflight.includes("resolvedTopicSource")],
+  ["server reuses existing worker secret", worker.includes("process.env.DEEP_WORKER_SECRET") && worker.includes("process.env.REFINERY_WORKER_SECRET") && worker.includes("process.env.OS4_WORKER_SECRET")],
+  ["worker per-job budget guard", worker.includes("const researchBudgetGuard")],
+  ["worker hard call cap", worker.includes("RESEARCH_CREDIT_BUDGET_EXHAUSTED")],
+  ["gap discovery/evidence are hard-capped", worker.includes('"GAP_DISCOVER"') && worker.includes('"GAP_EVIDENCE"') && worker.includes("researchLlmSteps")],
+  ["query cap installed", worker.includes("RESEARCH_QUERY_CAP_APPLIED") && worker.includes("out.queries.slice(0,researchMaxQueries)") && worker.includes("researchMaxQueries")],
+  ["source cap installed", worker.includes("RESEARCH_SOURCE_CAP_APPLIED") && worker.includes("job.max_sources=Math.min") && worker.includes("researchMaxSources")],
+  ["gap source cap installed", worker.includes("RESEARCH_GAP_SOURCE_CAP_APPLIED") && worker.includes("MAX_GAP_SOURCES_PER_PASS") && worker.includes("researchMaxSources")],
+  ["first pass stops before gap loops", worker.includes("RESEARCH_CREDIT_GUARD_FIRST_PASS_COMPLETE")],
+  ["ready criteria still require verified claims", runtime.includes("verified.length>=3")],
+  ["ready criteria still require A/B sources", runtime.includes("classAB.length>=2")],
+  ["ready criteria still block critical/high gaps", runtime.includes("critical.length===0")],
+  ["ready criteria coverage intact", runtime.includes("coverage>=7.5")],
+  ["ready criteria factual confidence intact", runtime.includes("factual>=7.5")],
+  ["worker command installs research guard", String(pkg.scripts?.["research:11d:worker"] || "").includes("patch-research-credit-guard.mjs")],
+  ["research worker loads .env.local", localWorkerRunner.includes('loadEnv(path.resolve(".env.local"))')],
+  ["research worker accepts existing secret fallbacks", localWorkerRunner.includes("process.env.DEEP_WORKER_SECRET") && localWorkerRunner.includes("process.env.REFINERY_WORKER_SECRET") && localWorkerRunner.includes("process.env.OS4_WORKER_SECRET")],
+  ["research dev accepts existing secret fallbacks", researchDevRunner.includes('"DEEP_WORKER_SECRET"') && researchDevRunner.includes('"REFINERY_WORKER_SECRET"') && researchDevRunner.includes('"OS4_WORKER_SECRET"')],
+  ["research dev uses dedicated launcher", String(pkg.scripts?.["research:11d:dev"] || "").includes("run-research-vercel-dev-with-local-env.mjs")],
+  ["targeted resume reuses checkpoint", resume.includes("...sourceCheckpoint") && resume.includes('step: "GAP_DISCOVER"') && resume.includes("sourceJobId")],
+  ["targeted resume has micro budget", resume.includes('Math.min(3') && resume.includes('Math.min(11') && resume.includes("firstPassOnly: true")],
+  ["finish command exists", String(pkg.scripts?.["research:11d:finish"] || "").includes("research-resume-gaps.mjs") && String(pkg.scripts?.["research:11d:finish"] || "").includes("run-research-local-stack.mjs")],
+];
+
+let failed = 0;
+for (const [name, ok] of checks) {
+  console.log(`${ok ? "PASS" : "FAIL"} — ${name}`);
+  if (!ok) failed += 1;
+}
+console.log(`\n${checks.length - failed}/${checks.length} checks passed.`);
+console.log("LLM calls: 0 | Network calls: 0");
+if (failed) process.exit(1);

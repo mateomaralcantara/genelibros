@@ -1,0 +1,49 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/deep-work-apply",
+      "destination": "/api/deep-work?__route=apply"
+    },
+    {
+      "source": "/api/deep-work-jobs",
+      "destination": "/api/deep-work?__route=jobs"
+    },
+    {
+      "source": "/api/deep-work-worker",
+      "destination": "/api/deep-work?__route=worker"
+    },
+    {
+      "source": "/api/manuscript-audit",
+      "destination": "/api/refinery?__route=audit"
+    },
+    {
+      "source": "/api/manuscript-audit-jobs",
+      "destination": "/api/refinery?__route=audit-jobs"
+    },
+    {
+      "source": "/api/refinement-apply",
+      "destination": "/api/refinery?__route=refinement-apply"
+    },
+    {
+      "source": "/api/refinement-jobs",
+      "destination": "/api/refinery?__route=refinement-jobs"
+    },
+    {
+      "source": "/api/refinement-worker",
+      "destination": "/api/refinery?__route=refinement-worker"
+    },
+    {
+      "source": "/api/refinery-worker",
+      "destination": "/api/refinery?__route=refinery-worker"
+    },
+    {
+      "source": "/api/research-jobs",
+      "destination": "/api/research-intelligence?__route=jobs"
+    },
+    {
+      "source": "/api/research-worker",
+      "destination": "/api/research-intelligence?__route=worker"
+    }
+  ]
+}

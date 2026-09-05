@@ -1,0 +1,3 @@
+select table_name from information_schema.tables where table_schema='public' and table_name in ('research_jobs','research_sources','research_evidence','research_claims','research_dossiers') order by table_name;
+select p.proname as function_name, pg_get_function_identity_arguments(p.oid) as arguments from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('research_claim_job','research_heartbeat_job','research_release_job','research_complete_job','research_fail_job','research_sweep_jobs') order by p.proname;
+select tablename,rowsecurity from pg_tables where schemaname='public' and tablename like 'research_%' order by tablename;

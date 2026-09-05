@@ -1,0 +1,308 @@
+export async function repairStep(input: {
+  depth: DeepWorkDepth;
+  title: string;
+  sourceContent: string;
+  candidate: DeepDraft;
+  quality: DeepQualityScore;
+  targetWords: number;
+}) {
+  // TOKEN_GUARD_V5.5
+  // Toda reparación larga o de calidad se ejecuta por segmentos con presupuesto
+  // proporcional. Esto evita deriva de longitud entre reparaciones externas.
+
+  const primaryModel = clean(
+    process.env.DEEP_REPAIR_MODEL || modelFor(input.depth)
+  );
+  const deepModel = clean(modelFor(input.depth));
+
+  const targetWords = Math.max(300, Number(input.targetWords || 0));
+  const minWords = Math.floor(targetWords * 0.92);
+  const maxWords = Math.ceil(targetWords * 1.08);
+  const preferredMin = Math.round(targetWords * 0.98);
+  const preferredMax = Math.round(targetWords * 1.02);
+
+  const countWords = (value: string) =>
+    clean(value).split(/\s+/).filter(Boolean).length;
+
+  const sanitizeOutput = (value: string) =>
+    clean(value)
+      .replace(/^```(?:markdown|text)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .replace(/<<<BEGIN_[A-Z_]+>>>/gi, "")
+      .replace(/<<<END_[A-Z_]+>>>/gi, "")
+      .trim();
+
+  const candidateText = sanitizeOutput(input.candidate.content);
+  const candidateWords = countWords(candidateText);
+
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTokens = 0;
+  let calls = 0;
+  const modelsUsed: string[] = [];
+
+  const qualityRepair = JSON.stringify({
+    weaknesses: input.quality?.weaknesses || [],
+    requiredRepairs: input.quality?.requiredRepairs || [],
+    unsupportedNewClaims: input.quality?.unsupportedNewClaims || [],
+  });
+
+  const generationConfig = (model: string, maxOutputTokens: number) => {
+    const isGemini3 = /^gemini-3(?:\.|[-])/i.test(model);
+    const isGemini25 = /^gemini-2\.5(?:[-]|$)/i.test(model);
+    const thinkingConfig = isGemini3
+      ? { thinkingLevel: "LOW" }
+      : isGemini25
+        ? { thinkingBudget: 1024 }
+        : undefined;
+
+    return {
+      systemInstruction:
+        "Eres COMPRESS_REPAIR_EDITOR V5.5 de Genelibros. " +
+        "Editas prosa editorial terminada, no notas ni resúmenes. " +
+        "Preservas tesis, orden, hechos respaldados, cifras, atribuciones, procedencia, reservas y evidencia. " +
+        "Corriges exactamente los defectos del QUALITY_REPORT sin inventar hechos ni fuentes.",
+      temperature: isGemini3 ? 1.0 : 0.2,
+      maxOutputTokens,
+      ...(thinkingConfig ? { thinkingConfig } : {}),
+    } as any;
+  };
+
+  const callEditor = async (args: {
+    model: string;
+    prompt: string;
+    maxOutputTokens: number;
+  }) => {
+    const response = await aiClient().models.generateContent({
+      model: args.model,
+      contents: [{ role: "user", parts: [{ text: args.prompt }] }],
+      config: generationConfig(args.model, args.maxOutputTokens),
+    });
+
+    calls += 1;
+    modelsUsed.push(args.model);
+
+    const u: AnyRow =
+      (response as any)?.usageMetadata || (response as any)?.usage || {};
+    const inputTokens = Number(u.promptTokenCount || u.inputTokens || 0) || 0;
+    const outputTokens = Number(u.candidatesTokenCount || u.outputTokens || 0) || 0;
+    const callTotalTokens =
+      Number(u.totalTokenCount || u.totalTokens || inputTokens + outputTokens) || 0;
+
+    totalInputTokens += inputTokens;
+    totalOutputTokens += outputTokens;
+    totalTokens += callTotalTokens;
+
+    const text = sanitizeOutput(clean((response as any)?.text));
+    const finishReason = clean(
+      (response as any)?.candidates?.[0]?.finishReason
+    ).toUpperCase();
+
+    if (!text) {
+      throw new Error(
+        `Deep Work V5.5: ${args.model} devolvió reparación vacía; finishReason=${finishReason || "UNKNOWN"}.`
+      );
+    }
+
+    return { text, finishReason };
+  };
+
+  const makeDraft = (content: string, rationale: string) => ({
+    draft: {
+      label: "REPAIR",
+      content: sanitizeOutput(content),
+      rationale,
+      strengths: [],
+      risks: [],
+    } as DeepDraft,
+    usage: {
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      totalTokens,
+      calls,
+    },
+    model: modelsUsed[modelsUsed.length - 1] || deepModel,
+  });
+
+  const splitBalanced = (text: string, requestedChunks: number) => {
+    const paragraphs = text
+      .split(/\n\s*\n/)
+      .map((p) => clean(p))
+      .filter(Boolean);
+
+    if (paragraphs.length < 2) {
+      return [text];
+    }
+
+    const total = paragraphs.reduce((sum, p) => sum + countWords(p), 0);
+    const targetPerChunk = Math.ceil(total / requestedChunks);
+    const chunks: string[] = [];
+    let current: string[] = [];
+    let currentWords = 0;
+
+    for (const paragraph of paragraphs) {
+      const words = countWords(paragraph);
+      const shouldClose =
+        current.length > 0 &&
+        chunks.length < requestedChunks - 1 &&
+        currentWords + words > targetPerChunk;
+
+      if (shouldClose) {
+        chunks.push(current.join("\n\n"));
+        current = [];
+        currentWords = 0;
+      }
+
+      current.push(paragraph);
+      currentWords += words;
+    }
+
+    if (current.length) chunks.push(current.join("\n\n"));
+    return chunks.length ? chunks : [text];
+  };
+
+  // Incluso cuando el candidato ya está dentro del rango, una segunda reparación
+  // QUALITY se segmenta para conservar longitud y evitar colapsos como 2500 -> 1882.
+  const requestedChunks =
+    candidateWords > 3400 ? 3 : candidateWords > 1600 ? 2 : 1;
+  const chunks = splitBalanced(candidateText, requestedChunks);
+
+  const sourceTotal = chunks.reduce((sum, chunk) => sum + countWords(chunk), 0);
+  const repairedChunks: string[] = [];
+  let remainingTarget = targetWords;
+  let remainingSource = sourceTotal;
+
+  for (let i = 0; i < chunks.length; i += 1) {
+    const chunk = chunks[i];
+    const sourceWords = countWords(chunk);
+    const isLast = i === chunks.length - 1;
+    const chunkTarget = isLast
+      ? Math.max(180, remainingTarget)
+      : Math.max(180, Math.round(remainingTarget * (sourceWords / Math.max(1, remainingSource))));
+    const chunkMin = Math.max(160, Math.floor(chunkTarget * 0.94));
+    const chunkMax = Math.ceil(chunkTarget * 1.06);
+
+    const basePrompt = `
+CAPÍTULO: ${input.title}
+SEGMENTO: ${i + 1}/${chunks.length}
+PALABRAS DEL SEGMENTO ORIGINAL: ${sourceWords}
+OBJETIVO DEL SEGMENTO: ${chunkTarget}
+RANGO OBLIGATORIO: ${chunkMin}-${chunkMax} palabras.
+
+QUALITY_REPORT QUE DEBES CORREGIR:
+${qualityRepair}
+
+REGLAS OBLIGATORIAS:
+- Devuelve el mismo tramo editorial ya reparado, no un resumen.
+- Conserva su posición y orden lógico dentro del capítulo.
+- Corrige los defectos del QUALITY_REPORT que afecten este tramo.
+- Conserva hechos respaldados, cifras, nombres, atribuciones, procedencia y reservas.
+- No inventes hechos, fuentes, cifras ni citas.
+- No devuelvas etiquetas BEGIN/END, cercas de código, diagnóstico ni lista de cambios.
+- Mantén la longitud estrictamente dentro del rango indicado.
+
+TEXTO DEL SEGMENTO:
+${chunk}
+`;
+
+    const first = await callEditor({
+      model: primaryModel,
+      prompt: basePrompt,
+      maxOutputTokens: Math.max(1800, Math.ceil(chunkTarget * 2.2)),
+    });
+
+    let bestText = first.text;
+    let bestWords = countWords(bestText);
+    let bestDistance = Math.abs(bestWords - chunkTarget);
+
+    if (
+      bestWords < chunkMin ||
+      bestWords > chunkMax ||
+      first.finishReason.includes("MAX_TOKENS")
+    ) {
+      const retryPrompt = `
+El intento anterior produjo ${bestWords} palabras y no respetó el rango ${chunkMin}-${chunkMax}.
+Repite DESDE EL TEXTO ORIGINAL DEL SEGMENTO, no desde la salida anterior.
+
+Debes entregar entre ${chunkMin} y ${chunkMax} palabras. Objetivo ${chunkTarget}.
+Corrige el QUALITY_REPORT sin eliminar sustancia necesaria ni inventar información.
+No incluyas delimitadores, comentarios, diagnóstico ni explicación del proceso.
+
+QUALITY_REPORT:
+${qualityRepair}
+
+TEXTO ORIGINAL DEL SEGMENTO:
+${chunk}
+`;
+
+      const second = await callEditor({
+        model: deepModel,
+        prompt: retryPrompt,
+        maxOutputTokens: Math.max(2000, Math.ceil(chunkTarget * 2.4)),
+      });
+      const secondWords = countWords(second.text);
+      const secondDistance = Math.abs(secondWords - chunkTarget);
+
+      if (secondDistance <= bestDistance) {
+        bestText = second.text;
+        bestWords = secondWords;
+        bestDistance = secondDistance;
+      }
+    }
+
+    repairedChunks.push(bestText);
+    remainingTarget = Math.max(0, remainingTarget - bestWords);
+    remainingSource = Math.max(1, remainingSource - sourceWords);
+  }
+
+  let finalText = sanitizeOutput(repairedChunks.join("\n\n"));
+  let finalWords = countWords(finalText);
+
+  if (finalWords >= minWords && finalWords <= maxWords) {
+    return makeDraft(
+      finalText,
+      `V5.5 segmented repair; source=${candidateWords}; words=${finalWords}; chunks=${chunks.length}`
+    );
+  }
+
+  // Dos calibraciones máximas sobre el texto YA reparado. Nunca se vuelve al
+  // SYNTHESIS ni se pierden las correcciones realizadas por segmentos.
+  for (let calibration = 1; calibration <= 2; calibration += 1) {
+    const calibrationPrompt = `
+CAPÍTULO: ${input.title}
+PALABRAS ACTUALES: ${finalWords}
+OBJETIVO: ${targetWords}
+RANGO DURO: ${minWords}-${maxWords}
+RANGO PREFERIDO: ${preferredMin}-${preferredMax}
+
+El texto ya fue reparado según QUALITY_REPORT. Ajusta únicamente longitud,
+continuidad y fluidez para entrar en el rango duro. No restaures errores corregidos.
+No inventes hechos o fuentes. Conserva cifras, atribuciones, procedencia y reservas.
+Devuelve exclusivamente el capítulo completo, sin delimitadores ni comentarios.
+
+TEXTO YA REPARADO:
+${finalText}
+`;
+
+    const calibrated = await callEditor({
+      model: deepModel,
+      prompt: calibrationPrompt,
+      maxOutputTokens: Math.max(6500, Math.ceil(targetWords * 2.4)),
+    });
+
+    finalText = calibrated.text;
+    finalWords = countWords(finalText);
+
+    if (finalWords >= minWords && finalWords <= maxWords) {
+      return makeDraft(
+        finalText,
+        `V5.5 segmented+calibrated repair; source=${candidateWords}; words=${finalWords}; chunks=${chunks.length}; calibration=${calibration}`
+      );
+    }
+  }
+
+  throw new Error(
+    `Deep Work V5.5: reparación fuera de rango (${finalWords}; requerido ${minWords}-${maxWords}); source=${candidateWords}; chunks=${chunks.length}; model=${deepModel}; preview=${JSON.stringify(finalText.slice(0, 700))}`
+  );
+}
+
