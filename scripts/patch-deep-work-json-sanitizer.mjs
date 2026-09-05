@@ -20,28 +20,88 @@ if (!runtime.includes(helperMarker)) {
     process.exit(2);
   }
 
-  const helper = `// DEEP_JSON_CONTROL_SANITIZER_V1_APPLIED\nfunction escapeIllegalJsonControlChars(input: string): string {\n  let out = \"\";\n  let inString = false;\n  let escaped = false;\n\n  for (let i = 0; i < input.length; i += 1) {\n    const char = input[i];\n\n    if (!inString) {\n      if (char === '\"') inString = true;\n      out += char;\n      continue;\n    }\n\n    if (escaped) {\n      out += char;\n      escaped = false;\n      continue;\n    }\n\n    if (char === \\\"\\\\\\\") {\n      out += char;\n      escaped = true;\n      continue;\n    }\n\n    if (char === '\"') {\n      out += char;\n      inString = false;\n      continue;\n    }\n\n    const code = char.charCodeAt(0);\n    if (code <= 0x1f) {\n      if (code === 0x08) out += \"\\\\b\";\n      else if (code === 0x09) out += \"\\\\t\";\n      else if (code === 0x0a) out += \"\\\\n\";\n      else if (code === 0x0c) out += \"\\\\f\";\n      else if (code === 0x0d) out += \"\\\\r\";\n      else out += \"\\\\u\" + code.toString(16).padStart(4, \"0\");\n      continue;\n    }\n\n    out += char;\n  }\n\n  return out;\n}\n\n`;
+  const helper = String.raw`// DEEP_JSON_CONTROL_SANITIZER_V1_APPLIED
+function escapeIllegalJsonControlChars(input: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+
+    if (!inString) {
+      if (char === '"') inString = true;
+      out += char;
+      continue;
+    }
+
+    if (escaped) {
+      out += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      out += char;
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      out += char;
+      inString = false;
+      continue;
+    }
+
+    const code = char.charCodeAt(0);
+    if (code <= 0x1f) {
+      if (code === 0x08) out += "\\b";
+      else if (code === 0x09) out += "\\t";
+      else if (code === 0x0a) out += "\\n";
+      else if (code === 0x0c) out += "\\f";
+      else if (code === 0x0d) out += "\\r";
+      else out += "\\u" + code.toString(16).padStart(4, "0");
+      continue;
+    }
+
+    out += char;
+  }
+
+  return out;
+}
+
+`;
 
   runtime = runtime.slice(0, at) + helper + runtime.slice(at);
   changed = true;
 }
 
 if (!runtime.includes("const sanitized = escapeIllegalJsonControlChars(repaired);")) {
-  const oldBlock = `    const repaired = candidate.replace(/,\\s*([}\\]])/g, \"$1\").replace(/\\u0000/g, \"\");\n    try {\n      return JSON.parse(repaired);\n    } catch (error) {\n      throw new Error(\n        \`Deep Work: respuesta JSON inválida. \${String((error as any)?.message || error)}. Preview: \${repaired.slice(0, 350)}\`,\n      );\n    }`;
-
-  const newBlock = `    const repaired = candidate.replace(/,\\s*([}\\]])/g, \"$1\").replace(/\\u0000/g, \"\");\n    const sanitized = escapeIllegalJsonControlChars(repaired);\n    try {\n      return JSON.parse(sanitized);\n    } catch (error) {\n      throw new Error(\n        \`Deep Work: respuesta JSON inválida tras saneo local. \${String((error as any)?.message || error)}. Preview: \${sanitized.slice(0, 350)}\`,\n      );\n    }`;
-
-  if (!runtime.includes(oldBlock)) {
-    console.error("[Genelibros] DEEP JSON SANITIZER: no se encontró el fallback parseJson esperado. 0 llamadas LLM.");
+  const parseNeedle = "    try {\n      return JSON.parse(repaired);";
+  if (!runtime.includes(parseNeedle)) {
+    console.error("[Genelibros] DEEP JSON SANITIZER: no se encontró el fallback JSON.parse(repaired). 0 llamadas LLM.");
     process.exit(3);
   }
-  runtime = runtime.replace(oldBlock, newBlock);
+
+  runtime = runtime.replace(
+    parseNeedle,
+    "    const sanitized = escapeIllegalJsonControlChars(repaired);\n    try {\n      return JSON.parse(sanitized);"
+  );
+  runtime = runtime.replace(
+    "Preview: ${repaired.slice(0, 350)}",
+    "Preview: ${sanitized.slice(0, 350)}"
+  );
+  runtime = runtime.replace(
+    "Deep Work: respuesta JSON inválida.",
+    "Deep Work: respuesta JSON inválida tras saneo local."
+  );
   changed = true;
 }
 
 const required = [
   runtime.includes(helperMarker),
   runtime.includes("function escapeIllegalJsonControlChars"),
+  runtime.includes('if (char === "\\\\")'),
   runtime.includes("const sanitized = escapeIllegalJsonControlChars(repaired);"),
   runtime.includes("JSON.parse(sanitized)"),
 ];
