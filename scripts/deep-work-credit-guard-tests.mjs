@@ -8,7 +8,7 @@ const packagePath = path.resolve(root, "package.json");
 const preflightPath = path.resolve(root, "scripts/deep-work-chapter-preflight.mjs");
 const modelCompatPath = path.resolve(root, "scripts/patch-deep-work-model-compat.mjs");
 const launcherPath = path.resolve(root, "scripts/run-vercel-dev-with-local-env.mjs");
-const finalV2Path = path.resolve(root, "scripts/run-deep-ch3-final-v2.mjs");
+const productionRunnerPath = path.resolve(root, "scripts/run-deep-production-v1.mjs");
 
 const runtime = fs.readFileSync(runtimePath, "utf8");
 const worker = fs.readFileSync(workerPath, "utf8");
@@ -16,11 +16,7 @@ const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 const preflight = fs.existsSync(preflightPath) ? fs.readFileSync(preflightPath, "utf8") : "";
 const modelCompat = fs.existsSync(modelCompatPath) ? fs.readFileSync(modelCompatPath, "utf8") : "";
 const launcher = fs.existsSync(launcherPath) ? fs.readFileSync(launcherPath, "utf8") : "";
-const finalV2 = fs.existsSync(finalV2Path) ? fs.readFileSync(finalV2Path, "utf8") : "";
-
-const finalCh3Script = String(pkg.scripts?.["deep:11c:final-ch3"] || "");
-const finalCh3UsesV2 = finalCh3Script.includes("run-deep-ch3-final-v2.mjs");
-const finalV2InstallsModelCompat = finalV2.includes('runNode("scripts/patch-deep-work-model-compat.mjs")');
+const productionRunner = fs.existsSync(productionRunnerPath) ? fs.readFileSync(productionRunnerPath, "utf8") : "";
 
 const checks = [
   ["runtime credit routing", runtime.includes("budgetStage") && runtime.includes("DEEP_BUDGET_MODEL")],
@@ -41,7 +37,7 @@ const checks = [
   ["preflight blocks missing research", preflight.includes("BLOCKED: no existe Research certificado ready_for_writing")],
   ["dev installs guard and model compat before server", String(pkg.scripts?.["deep:11c:dev"] || "").includes("patch-deep-work-credit-guard.mjs") && String(pkg.scripts?.["deep:11c:dev"] || "").includes("patch-deep-work-model-compat.mjs")],
   ["worker installs guard and model compat", String(pkg.scripts?.["deep:11c:worker"] || "").includes("patch-deep-work-credit-guard.mjs") && String(pkg.scripts?.["deep:11c:worker"] || "").includes("patch-deep-work-model-compat.mjs")],
-  ["final ch3 routes through v2 and installs model compat", finalCh3UsesV2 && finalV2InstallsModelCompat],
+  ["Production V1 installs guard and model compat", productionRunner.includes('runNode("scripts/patch-deep-work-credit-guard.mjs")') && productionRunner.includes('runNode("scripts/patch-deep-work-model-compat.mjs")')],
 ];
 
 let failed = 0;
