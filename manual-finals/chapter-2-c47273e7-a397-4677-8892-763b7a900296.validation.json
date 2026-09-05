@@ -1,0 +1,31 @@
+{
+  "jobId": "c47273e7-a397-4677-8892-763b7a900296",
+  "chapterNumber": 2,
+  "targetWords": 2500,
+  "minWords": 2300,
+  "maxWords": 2700,
+  "sha256": "7b34703d11003125187a8e99190037b8d7477f1320882450d532f1fa44284bea",
+  "anchors": [
+    "29%",
+    "38%",
+    "60%",
+    "65%",
+    "752 MW",
+    "125-01",
+    "186-07",
+    "342-20",
+    "368-22",
+    "57-07",
+    "100 kWh/mes",
+    "OPEX",
+    "CAPEX",
+    "VAD",
+    "tarifa técnica",
+    "curtailment",
+    "invasión rusa de Ucrania",
+    "canibalización del CAPEX",
+    "percepción de pagar dos veces"
+  ],
+  "llmCallsForManualRevision": 0,
+  "note": "Manifiesto determinístico para recuperación local del Capítulo 2. No equivale a una nueva evaluación LLM."
+}
