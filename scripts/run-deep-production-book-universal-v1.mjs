@@ -28,7 +28,12 @@ console.log("[Genelibros] Primera pasada Research única por capítulo; no hay l
 console.log("[Genelibros] Production mantiene threshold 9.3 y 0 reparaciones automáticas.");
 console.log(`[Genelibros] Modo: ${execute ? "EXECUTE" : "PREFLIGHT ONLY (0 LLM)"}.`);
 
+runNode("scripts/patch-research-gap-source-cap.mjs");
+runNode("scripts/patch-research-document-ingestion.mjs");
+runNode("scripts/patch-research-evidence-semantics.mjs");
+runNode("scripts/patch-research-credit-guard.mjs");
 runNode("scripts/deep-production-book-universal-v1-tests.mjs");
+runNode("scripts/research-document-ingestion-tests.mjs");
 runNode("scripts/research-evidence-semantics-tests.mjs");
 runNode("scripts/research-credit-guard-tests.mjs");
 runNode("scripts/deep-production-v1-tests.mjs");
