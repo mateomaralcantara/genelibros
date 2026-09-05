@@ -55,6 +55,11 @@ const JOB_ID = "b0d55161-ec60-491e-b6f4-fb4142029408";
 const EXPECTED_CALLS = 7;
 const FINAL_MAX_CALLS = 9;
 const FINAL_TITLE = "Qué funciona, qué no y qué podría funcionar";
+const DIRECT_REPAIR_MAX_OUTPUT_TOKENS = Math.min(
+  60000,
+  Math.max(32000, Number(process.env.DEEP_DIRECT_REPAIR_MAX_OUTPUT_TOKENS || 48000)),
+);
+const DIRECT_REPAIR_THINKING_LEVEL = "MINIMAL";
 const s = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 
 const { data: job, error: jobError } = await s
@@ -155,6 +160,8 @@ console.log({
   requiredRepairs: Array.isArray(restoredQuality.requiredRepairs) ? restoredQuality.requiredRepairs : [],
   unsupportedNewClaims: Array.isArray(restoredQuality.unsupportedNewClaims) ? restoredQuality.unsupportedNewClaims : [],
   repairModel: model,
+  thinkingLevel: DIRECT_REPAIR_THINKING_LEVEL,
+  maxOutputTokens: DIRECT_REPAIR_MAX_OUTPUT_TOKENS,
   maxAdditionalLlmCalls: 2,
   directRepairCallsNow: 1,
   qualityCallsLater: 1,
@@ -181,6 +188,7 @@ ${String(synthesis.content).slice(0, 90000)}
 <<<END_SYNTHESIS>>>
 
 LONGITUD:
+- original actual: ${countWords(synthesis.content)} palabras
 - objetivo: ${targetWords} palabras
 - rango obligatorio: ${minWords}-${maxWords}
 - rango preferido: ${preferredMin}-${preferredMax}
@@ -188,6 +196,8 @@ LONGITUD:
 REGLAS OBLIGATORIAS:
 - Devuelve el CAPÍTULO COMPLETO reparado, no un resumen ni una lista de cambios.
 - Corrige solamente requiredRepairs y unsupportedNewClaims del QUALITY REPORT.
+- En este caso debes COMPRIMIR editorialmente el capítulo para quedar preferiblemente entre ${preferredMin}-${preferredMax} palabras y nunca fuera de ${minWords}-${maxWords}.
+- Elimina redundancia, reiteración, frases de transición prescindibles y explicaciones duplicadas antes de eliminar evidencia sustantiva.
 - Conserva toda atribución, procedencia, reserva y cautela factual.
 - No conviertas afirmaciones atribuidas en hechos directos.
 - No inventes cifras, fuentes, instituciones, fechas, costos ni causalidades.
@@ -202,8 +212,11 @@ REGLAS OBLIGATORIAS:
   config: {
     systemInstruction:
       "Eres FINAL_REPAIR_EDITOR de Genelibros. Haces una única reparación quirúrgica sobre un capítulo ya sintetizado. Tu salida es siempre el capítulo completo como texto plano, conservando disciplina factual y atribuciones.",
-    temperature: 0.1,
-    maxOutputTokens: 18000,
+    thinkingConfig: {
+      thinkingLevel: DIRECT_REPAIR_THINKING_LEVEL,
+      includeThoughts: false,
+    },
+    maxOutputTokens: DIRECT_REPAIR_MAX_OUTPUT_TOKENS,
   },
 });
 
@@ -214,10 +227,12 @@ const repairUsage = usageOf(response);
 const finishReason = clean(response?.candidates?.[0]?.finishReason).toUpperCase();
 if (!repairedText) {
   console.error("[Genelibros] DIRECT REPAIR falló: Gemini devolvió texto vacío. La llamada pudo ser facturada; el job no se modifica.");
+  console.error({ finishReason, repairUsage, thinkingLevel: DIRECT_REPAIR_THINKING_LEVEL, maxOutputTokens: DIRECT_REPAIR_MAX_OUTPUT_TOKENS });
   process.exit(9);
 }
 if (finishReason.includes("MAX_TOKENS")) {
   console.error("[Genelibros] DIRECT REPAIR falló por MAX_TOKENS. La llamada pudo ser facturada; el job no se modifica ni se reintenta.");
+  console.error({ finishReason, repairUsage, partialWords: countWords(repairedText), thinkingLevel: DIRECT_REPAIR_THINKING_LEVEL, maxOutputTokens: DIRECT_REPAIR_MAX_OUTPUT_TOKENS });
   process.exit(10);
 }
 
@@ -232,6 +247,8 @@ const repairArtifactPayload = {
   unsupportedNewClaims: Array.isArray(restoredQuality.unsupportedNewClaims) ? restoredQuality.unsupportedNewClaims : [],
   words: repairWords,
   withinRequiredWordRange: repairWords >= minWords && repairWords <= maxWords,
+  thinkingLevel: DIRECT_REPAIR_THINKING_LEVEL,
+  maxOutputTokens: DIRECT_REPAIR_MAX_OUTPUT_TOKENS,
   finishReason,
 };
 
@@ -330,6 +347,8 @@ console.log({
   withinRequiredWordRange: repairWords >= minWords && repairWords <= maxWords,
   finishReason,
   repairModel: model,
+  thinkingLevel: DIRECT_REPAIR_THINKING_LEVEL,
+  maxOutputTokens: DIRECT_REPAIR_MAX_OUTPUT_TOKENS,
   repairArtifactId: repairArtifactId || null,
   callsAfterRepair: Number(updated.result?.usage?.calls || 0),
   repairAttempts: Number(updated.result?.repairAttempts || 0),
