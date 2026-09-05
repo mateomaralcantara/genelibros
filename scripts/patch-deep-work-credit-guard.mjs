@@ -21,8 +21,6 @@ let workerChanged = false;
 
 const guardExpr = `!["0", "false", "off"].includes(\n    clean(process.env.DEEP_CREDIT_GUARD || "1").toLowerCase()\n  )`;
 
-// Routing: Plan/Context/Draft B/C/Critic/Quality -> budget model.
-// Draft A (MULTI_PASS_WRITER) y SYNTHESIS se quedan en modelFor(depth), es decir Pro en SUPREME.
 const oldGenerateModel = "  const model = modelFor(input.depth);";
 const newGenerateModel = `  const creditGuardEnabled = ${guardExpr};\n  const budgetStage = /DEEP_PLANNER|LONG_CONTEXT_ANALYST|ALTERNATIVE_DRAFT_WRITER|CRITIC_COUNCIL|DEEP_QUALITY_JUDGE/i.test(input.system);\n  const model = creditGuardEnabled && budgetStage\n    ? clean(process.env.DEEP_BUDGET_MODEL || process.env.DEEP_FAST_MODEL || "gemini-2.5-flash")\n    : modelFor(input.depth);`;
 
@@ -32,8 +30,6 @@ if (!runtime.includes("const creditGuardEnabled = ![\"0\", \"false\", \"off\"].i
   console.log("[Genelibros] CREDIT GUARD V2: routing mixto activado (Pro = Draft A + Synthesis).");
 }
 
-// Bajo Credit Guard no hacemos reintentos internos JSON ciegos. Los maxOutputTokens ya son holgados;
-// si una etapa trunca, falla de forma visible en vez de multiplicar silenciosamente el costo.
 if (!runtime.includes("const generateMaxAttempts = creditGuardEnabled") && runtime.includes("  for (let attempt = 1; attempt <= 3; attempt += 1) {")) {
   runtime = runtime.replace(
     "  for (let attempt = 1; attempt <= 3; attempt += 1) {",
@@ -51,7 +47,6 @@ if (!runtime.includes("const generateMaxAttempts = creditGuardEnabled") && runti
   console.log("[Genelibros] CREDIT GUARD V2: reintentos internos JSON = 1 por defecto.");
 }
 
-// REPAIR usa Flash por defecto; Pro solo mediante override explícito.
 const oldRepairModels = `  const primaryModel = clean(process.env.DEEP_REPAIR_MODEL || modelFor(input.depth));\n  const deepModel = clean(modelFor(input.depth));`;
 const newRepairModels = `  const primaryModel = clean(\n    process.env.DEEP_REPAIR_MODEL ||\n    process.env.DEEP_BUDGET_MODEL ||\n    process.env.DEEP_FAST_MODEL ||\n    "gemini-2.5-flash"\n  );\n  const deepModel = clean(\n    process.env.DEEP_REPAIR_DEEP_MODEL ||\n    process.env.DEEP_REPAIR_MODEL ||\n    process.env.DEEP_BUDGET_MODEL ||\n    process.env.DEEP_FAST_MODEL ||\n    "gemini-2.5-flash"\n  );`;
 
@@ -61,8 +56,6 @@ if (runtime.includes(oldRepairModels)) {
   console.log("[Genelibros] CREDIT GUARD V2: REPAIR usa Flash por defecto.");
 }
 
-// V5.8: si la primera clasificación ya entregó un orden completo de removibles,
-// el segundo ajuste de longitud se hace localmente, sin otra llamada LLM.
 const secondRankStart = "    // Si seguimos por encima del rango duro, hacemos una segunda selección solo sobre";
 const secondRankEnd = "    if (prunedWords < minWords || prunedWords > maxWords) {";
 if (!runtime.includes("CREDIT_GUARD_V2_DETERMINISTIC_SECOND_PRUNE") && runtime.includes(secondRankStart)) {
@@ -76,7 +69,6 @@ if (!runtime.includes("CREDIT_GUARD_V2_DETERMINISTIC_SECOND_PRUNE") && runtime.i
   }
 }
 
-// SUPREME conserva threshold=9.3, pero bajo guard usa 2 drafts y máximo 1 repair.
 const oldSupremePolicy = '  if (depth === "SUPREME") return { draftCount: 3, maxRepairAttempts: 2, threshold: 9.3, useContext: true, useCouncil: true };';
 const newSupremePolicy = `  if (depth === "SUPREME") {\n    const creditGuardEnabled = !["0", "false", "off"].includes(\n      clean(process.env.DEEP_CREDIT_GUARD || "1").toLowerCase()\n    );\n    return creditGuardEnabled\n      ? { draftCount: 2, maxRepairAttempts: 1, threshold: 9.3, useContext: true, useCouncil: true }\n      : { draftCount: 3, maxRepairAttempts: 2, threshold: 9.3, useContext: true, useCouncil: true };\n  }`;
 if (!runtime.includes("draftCount: 2, maxRepairAttempts: 1, threshold: 9.3") && runtime.includes(oldSupremePolicy)) {
@@ -85,7 +77,6 @@ if (!runtime.includes("draftCount: 2, maxRepairAttempts: 1, threshold: 9.3") && 
   console.log("[Genelibros] CREDIT GUARD V2: SUPREME = 2 drafts, 1 repair, threshold 9.3 intacto.");
 }
 
-// Nunca gastar una reparación automática si el juez no especificó qué reparar.
 const oldCanRepair = `    if (quality.unsupportedNewClaims.length) quality = { ...quality, verdict: "REPAIR" };\n    if (quality.overallScore < policy.threshold && quality.verdict === "APPROVED") quality = { ...quality, verdict: "REPAIR" };\n    const canRepair = quality.verdict === "REPAIR" && Number(result.repairAttempts || 0) < policy.maxRepairAttempts;\n    if (!canRepair && quality.verdict === "REPAIR") quality = { ...quality, verdict: "REJECTED" };`;
 const newCanRepair = `    if (quality.unsupportedNewClaims.length) quality = { ...quality, verdict: "REPAIR" };\n    if (quality.overallScore < policy.threshold && quality.verdict === "APPROVED") quality = { ...quality, verdict: "REPAIR" };\n\n    const creditGuardEnabled = !["0", "false", "off"].includes(\n      clean(process.env.DEEP_CREDIT_GUARD || "1").toLowerCase()\n    );\n    const actionableRepair =\n      (Array.isArray(quality.requiredRepairs) && quality.requiredRepairs.length > 0) ||\n      (Array.isArray(quality.unsupportedNewClaims) && quality.unsupportedNewClaims.length > 0);\n\n    if (creditGuardEnabled && quality.verdict === "REPAIR" && !actionableRepair) {\n      quality = {\n        ...quality,\n        verdict: "REJECTED",\n        weaknesses: [\n          ...(quality.weaknesses || []),\n          "CREDIT_GUARD: el juez no produjo requiredRepairs ni claims concretos; se detiene antes de gastar otra llamada de reparación ciega."\n        ],\n      };\n    }\n\n    const canRepair =\n      quality.verdict === "REPAIR" &&\n      (!creditGuardEnabled || actionableRepair) &&\n      Number(result.repairAttempts || 0) < policy.maxRepairAttempts;\n    if (!canRepair && quality.verdict === "REPAIR") quality = { ...quality, verdict: "REJECTED" };`;
 
@@ -95,7 +86,6 @@ if (!worker.includes("CREDIT_GUARD: el juez no produjo requiredRepairs") && work
   console.log("[Genelibros] CREDIT GUARD V2: reparaciones ciegas bloqueadas.");
 }
 
-// Hard budget: corta el job limpiamente antes de otra etapa LLM cuando alcanza el techo.
 const policyNeedle = "  const policy = deepModePolicy(depth);";
 const budgetBlock = `  const policy = deepModePolicy(depth);\n  const creditGuardEnabledForJob = !["0", "false", "off"].includes(\n    clean(process.env.DEEP_CREDIT_GUARD || "1").toLowerCase()\n  );\n  const maxLlmCalls = Math.max(1, Number(\n    process.env.DEEP_MAX_LLM_CALLS ||\n    (depth === "SUPREME" ? 9 : depth === "DEEP" ? 7 : 4)\n  ));\n  const llmSteps = new Set(["PLAN", "CONTEXT", "DRAFT", "CRITIC", "SYNTHESIS", "REPAIR", "QUALITY"]);`;
 if (!worker.includes("const creditGuardEnabledForJob") && worker.includes(policyNeedle)) {
@@ -104,11 +94,11 @@ if (!worker.includes("const creditGuardEnabledForJob") && worker.includes(policy
 }
 
 const heartbeatNeedle = "  await heartbeat(s, job.id, worker);";
-const budgetStopBlock = `  await heartbeat(s, job.id, worker);\n\n  if (\n    creditGuardEnabledForJob &&\n    llmSteps.has(step) &&\n    Number(result.usage?.calls || 0) >= maxLlmCalls\n  ) {\n    if (!result.finalCandidate?.content && Array.isArray(result.drafts) && result.drafts.length) {\n      result.finalCandidate = result.drafts[0];\n    }\n    const priorQuality = result.quality && typeof result.quality === "object" ? result.quality : {};\n    result.quality = {\n      overallScore: Number(priorQuality.overallScore || 0),\n      verdict: "REJECTED",\n      scores: priorQuality.scores || {\n        structure: 0, depth: 0, clarity: 0, continuity: 0, style: 0,\n        originality: 0, factualDiscipline: 0, usefulness: 0, publishability: 0\n      },\n      strengths: Array.isArray(priorQuality.strengths) ? priorQuality.strengths : [],\n      weaknesses: [\n        ...(Array.isArray(priorQuality.weaknesses) ? priorQuality.weaknesses : []),\n        \`CREDIT_BUDGET_EXHAUSTED: ${Number(result.usage?.calls || 0)}/${maxLlmCalls} llamadas; se detuvo antes de ${step}.\`\n      ],\n      requiredRepairs: Array.isArray(priorQuality.requiredRepairs) ? priorQuality.requiredRepairs : [],\n      unsupportedNewClaims: Array.isArray(priorQuality.unsupportedNewClaims) ? priorQuality.unsupportedNewClaims : [],\n    };\n    result.budgetGuard = {\n      hit: true,\n      callsUsed: Number(result.usage?.calls || 0),\n      maxCalls: maxLlmCalls,\n      stoppedBefore: step,\n      stoppedAt: new Date().toISOString(),\n    };\n    await release(s, job, worker, { version: "11C", step: "PERSIST" }, result, 96);\n    return {\n      step, next: "PERSIST", progress: 96,\n      quality: result.quality.overallScore, verdict: result.quality.verdict,\n      budgetGuard: result.budgetGuard,\n    };\n  }`;
+const budgetStopBlock = `  await heartbeat(s, job.id, worker);\n\n  if (\n    creditGuardEnabledForJob &&\n    llmSteps.has(step) &&\n    Number(result.usage?.calls || 0) >= maxLlmCalls\n  ) {\n    if (!result.finalCandidate?.content && Array.isArray(result.drafts) && result.drafts.length) {\n      result.finalCandidate = result.drafts[0];\n    }\n    const priorQuality = result.quality && typeof result.quality === "object" ? result.quality : {};\n    result.quality = {\n      overallScore: Number(priorQuality.overallScore || 0),\n      verdict: "REJECTED",\n      scores: priorQuality.scores || {\n        structure: 0, depth: 0, clarity: 0, continuity: 0, style: 0,\n        originality: 0, factualDiscipline: 0, usefulness: 0, publishability: 0\n      },\n      strengths: Array.isArray(priorQuality.strengths) ? priorQuality.strengths : [],\n      weaknesses: [\n        ...(Array.isArray(priorQuality.weaknesses) ? priorQuality.weaknesses : []),\n        "CREDIT_BUDGET_EXHAUSTED: " + Number(result.usage?.calls || 0) + "/" + maxLlmCalls + " llamadas; se detuvo antes de " + step + "."\n      ],\n      requiredRepairs: Array.isArray(priorQuality.requiredRepairs) ? priorQuality.requiredRepairs : [],\n      unsupportedNewClaims: Array.isArray(priorQuality.unsupportedNewClaims) ? priorQuality.unsupportedNewClaims : [],\n    };\n    result.budgetGuard = {\n      hit: true,\n      callsUsed: Number(result.usage?.calls || 0),\n      maxCalls: maxLlmCalls,\n      stoppedBefore: step,\n      stoppedAt: new Date().toISOString(),\n    };\n    await release(s, job, worker, { version: "11C", step: "PERSIST" }, result, 96);\n    return {\n      step, next: "PERSIST", progress: 96,\n      quality: result.quality.overallScore, verdict: result.quality.verdict,\n      budgetGuard: result.budgetGuard,\n    };\n  }`;
 if (!worker.includes("CREDIT_BUDGET_EXHAUSTED") && worker.includes(heartbeatNeedle)) {
   worker = worker.replace(heartbeatNeedle, budgetStopBlock);
   workerChanged = true;
-  console.log("[Genelibros] CREDIT GUARD V2: techo duro de llamadas por job instalado (SUPREME=9). ");
+  console.log("[Genelibros] CREDIT GUARD V2: techo duro de llamadas por job instalado (SUPREME=9).");
 }
 
 if (runtimeChanged) fs.writeFileSync(runtimeFile, runtime, "utf8");
