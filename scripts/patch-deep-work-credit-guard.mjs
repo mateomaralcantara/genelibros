@@ -17,7 +17,8 @@ let workerChanged = false;
 // 4) permitir como máximo 1 REPAIR automático;
 // 5) bloquear repairs sin instrucciones accionables;
 // 6) imponer un techo duro de llamadas LLM por job;
-// 7) evitar una segunda llamada de ranking V5.8 cuando basta una poda determinística.
+// 7) evitar una segunda llamada de ranking V5.8 cuando basta una poda determinística;
+// 8) permitir un cap por-job (job.policy.maxLlmCalls) para pruebas controladas.
 
 const guardExpr = `!["0", "false", "off"].includes(\n    clean(process.env.DEEP_CREDIT_GUARD || "1").toLowerCase()\n  )`;
 
@@ -87,10 +88,18 @@ if (!worker.includes("CREDIT_GUARD: el juez no produjo requiredRepairs") && work
 }
 
 const policyNeedle = "  const policy = deepModePolicy(depth);";
-const budgetBlock = `  const policy = deepModePolicy(depth);\n  const creditGuardEnabledForJob = !["0", "false", "off"].includes(\n    clean(process.env.DEEP_CREDIT_GUARD || "1").toLowerCase()\n  );\n  const maxLlmCalls = Math.max(1, Number(\n    process.env.DEEP_MAX_LLM_CALLS ||\n    (depth === "SUPREME" ? 9 : depth === "DEEP" ? 7 : 4)\n  ));\n  const llmSteps = new Set(["PLAN", "CONTEXT", "DRAFT", "CRITIC", "SYNTHESIS", "REPAIR", "QUALITY"]);`;
+const budgetBlock = `  const policy = deepModePolicy(depth);\n  const creditGuardEnabledForJob = !["0", "false", "off"].includes(\n    clean(process.env.DEEP_CREDIT_GUARD || "1").toLowerCase()\n  );\n  const maxLlmCalls = Math.max(1, Number(\n    job.policy?.maxLlmCalls ||\n    process.env.DEEP_MAX_LLM_CALLS ||\n    (depth === "SUPREME" ? 9 : depth === "DEEP" ? 7 : 4)\n  ));\n  const llmSteps = new Set(["PLAN", "CONTEXT", "DRAFT", "CRITIC", "SYNTHESIS", "REPAIR", "QUALITY"]);`;
 if (!worker.includes("const creditGuardEnabledForJob") && worker.includes(policyNeedle)) {
   worker = worker.replace(policyNeedle, budgetBlock);
   workerChanged = true;
+}
+
+const oldEnvOnlyCap = `  const maxLlmCalls = Math.max(1, Number(\n    process.env.DEEP_MAX_LLM_CALLS ||\n    (depth === "SUPREME" ? 9 : depth === "DEEP" ? 7 : 4)\n  ));`;
+const perJobCap = `  const maxLlmCalls = Math.max(1, Number(\n    job.policy?.maxLlmCalls ||\n    process.env.DEEP_MAX_LLM_CALLS ||\n    (depth === "SUPREME" ? 9 : depth === "DEEP" ? 7 : 4)\n  ));`;
+if (worker.includes(oldEnvOnlyCap)) {
+  worker = worker.replace(oldEnvOnlyCap, perJobCap);
+  workerChanged = true;
+  console.log("[Genelibros] CREDIT GUARD V2: hard cap ahora respeta job.policy.maxLlmCalls.");
 }
 
 const heartbeatNeedle = "  await heartbeat(s, job.id, worker);";
@@ -98,10 +107,9 @@ const budgetStopBlock = `  await heartbeat(s, job.id, worker);\n\n  if (\n    cr
 if (!worker.includes("CREDIT_BUDGET_EXHAUSTED") && worker.includes(heartbeatNeedle)) {
   worker = worker.replace(heartbeatNeedle, budgetStopBlock);
   workerChanged = true;
-  console.log("[Genelibros] CREDIT GUARD V2: techo duro de llamadas por job instalado (SUPREME=9).");
+  console.log("[Genelibros] CREDIT GUARD V2: techo duro de llamadas por job instalado (SUPREME=9 por defecto).");
 }
 
-// Self-heal para instalaciones locales que ya recibieron la primera versión del hard cap.
 const oldPriorQuality = '    const priorQuality = result.quality && typeof result.quality === "object" ? result.quality : {};';
 const typedPriorQuality = `    const priorQuality: AnyRow = result.quality && typeof result.quality === "object"\n      ? (result.quality as AnyRow)\n      : {};`;
 if (worker.includes(oldPriorQuality)) {
@@ -116,5 +124,5 @@ if (workerChanged) fs.writeFileSync(workerFile, worker, "utf8");
 if (!runtimeChanged && !workerChanged) {
   console.log("[Genelibros] CREDIT GUARD V2 ya estaba instalado.");
 }
-console.log("[Genelibros] CREDIT GUARD V2 activo: SUPREME threshold=9.3, drafts=2, repairs<=1, hard cap=9 llamadas.");
-console.log("[Genelibros] Overrides: DEEP_CREDIT_GUARD=0 | DEEP_MAX_LLM_CALLS=N | DEEP_GENERATE_MAX_ATTEMPTS=N | DEEP_BUDGET_MODEL=model.");
+console.log("[Genelibros] CREDIT GUARD V2 activo: SUPREME threshold=9.3, drafts=2, repairs<=1, hard cap configurable por job.");
+console.log("[Genelibros] Overrides: job.policy.maxLlmCalls | DEEP_CREDIT_GUARD=0 | DEEP_MAX_LLM_CALLS=N | DEEP_GENERATE_MAX_ATTEMPTS=N | DEEP_BUDGET_MODEL=model.");
