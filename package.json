@@ -71,6 +71,9 @@
     "research:11d:run": "node scripts/patch-deep-work-v58.mjs && node scripts/patch-deep-work-credit-guard.mjs && node scripts/patch-research-gap-source-cap.mjs && node scripts/patch-research-document-ingestion.mjs && node scripts/patch-research-evidence-semantics.mjs && node scripts/patch-research-credit-guard.mjs && node scripts/research-topic-resolution-tests.mjs && node scripts/research-document-ingestion-tests.mjs && node scripts/research-evidence-semantics-tests.mjs && node scripts/research-credit-guard-tests.mjs && npm run typecheck && node scripts/run-research-local-stack.mjs",
     "research:11d:finish": "node scripts/patch-deep-work-v58.mjs && node scripts/patch-deep-work-credit-guard.mjs && node scripts/patch-research-gap-source-cap.mjs && node scripts/patch-research-document-ingestion.mjs && node scripts/patch-research-evidence-semantics.mjs && node scripts/patch-research-credit-guard.mjs && node scripts/research-topic-resolution-tests.mjs && node scripts/research-document-ingestion-tests.mjs && node scripts/research-evidence-semantics-tests.mjs && node scripts/research-credit-guard-tests.mjs && npm run typecheck && node scripts/research-resume-gaps.mjs --from-job b69bdfeb-e024-4c1e-99ab-918a3e0e6f6b --max-queries 3 --max-sources 3 --max-calls 11 --enqueue && node scripts/run-research-local-stack.mjs",
     "research:11d:verify": "npm run research:11d:test && npm run research:11d:guard-test && npm run typecheck",
+    "blueprint:recover": "node scripts/blueprint-recovery-v1.mjs",
+    "blueprint:verify": "node scripts/blueprint-recovery-v1-tests.mjs",
+    "genelibros:book": "node scripts/run-genelibros-book-final-v1.mjs",
     "genelibros:final:verify": "node scripts/genelibros-final-release-gate.mjs"
   },
   "dependencies": {
