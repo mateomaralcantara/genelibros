@@ -79,7 +79,7 @@ if (projectError || !project) throw projectError || new Error("Proyecto no encon
 
 const { data: chapters, error: chaptersError } = await s
   .from("sections")
-  .select("id,title,content,chapter_number,order_index,type")
+  .select("id,title,content,chapter_number,type")
   .eq("project_id", project.id)
   .eq("type", "CHAPTER")
   .order("chapter_number", { ascending: true });
