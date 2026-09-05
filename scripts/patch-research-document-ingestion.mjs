@@ -8,13 +8,13 @@ const MARKER = "RESEARCH_DOCUMENT_INGESTION_V1";
 function assertInstalled(source) {
   const checks = [
     ["marker", source.includes(MARKER)],
-    ["document import", source.includes('from "./research-document-ingestion.js"')),
-    ["binary reader", source.includes("readResponseBytesLimited")),
-    ["document detection", source.includes("detectResearchDocumentKind(type, url.toString())")),
-    ["document extraction", source.includes("extractResearchDocumentText")),
+    ["document import", source.includes('from "./research-document-ingestion.js"')],
+    ["binary reader", source.includes("readResponseBytesLimited")],
+    ["document detection", source.includes("detectResearchDocumentKind(type, url.toString())")],
+    ["document extraction", source.includes("extractResearchDocumentText")],
     ["document byte limit", source.includes("researchDocumentLimits().maxBytes")],
     ["text byte limit preserved", source.includes("MAX_FETCH_BYTES")],
-    ["ssrf validation preserved", source.includes("await assertPublicUrl(current)"))
+    ["ssrf validation preserved", source.includes("await assertPublicUrl(current)")],
   ];
   const missing = checks.filter(([, ok]) => !ok).map(([name]) => name);
   if (missing.length) throw new Error(`RESEARCH_DOCUMENT_INGESTION_PATCH_INCOMPLETE: ${missing.join(", ")}`);
