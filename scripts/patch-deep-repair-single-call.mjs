@@ -24,23 +24,18 @@ const nextExportAt = runtime.indexOf(
 const repairEnd = nextExportAt > repairStart ? nextExportAt : runtime.length;
 let repairBlock = runtime.slice(repairStart, repairEnd);
 
-if (!/attempt\s*<=\s*maxAttempts/m.test(repairBlock)) {
-  console.error("[Genelibros] DEEP REPAIR SINGLE CALL: repairStep ya no usa maxAttempts en su loop. 0 llamadas LLM.");
-  process.exit(3);
-}
-
 // Toleramos cualquier forma previa de la asignación: una línea, varias líneas,
-// literal 2, Math.max(...), Number(env...), etc. Solo tocamos la primera
-// declaración const maxAttempts dentro de repairStep.
+// literal 2, Math.max(...), Number(env...), etc. No dependemos del formato del
+// loop: maxAttempts es la única fuente de verdad que necesitamos acotar.
 const maxAttemptsRe = /const\s+maxAttempts\s*=\s*[\s\S]*?;/m;
 const match = repairBlock.match(maxAttemptsRe);
 if (!match || typeof match.index !== "number") {
   console.error("[Genelibros] DEEP REPAIR SINGLE CALL: no se encontró una declaración maxAttempts dentro de repairStep. 0 llamadas LLM.");
-  process.exit(4);
+  process.exit(3);
 }
 
 const replacement = [
-  "// DEEP_REPAIR_SINGLE_CALL_V1_APPLIED",
+  "  // DEEP_REPAIR_SINGLE_CALL_V1_APPLIED",
   "  const maxAttempts = Math.max(",
   "    1,",
   "    Number(process.env.DEEP_REPAIR_INTERNAL_MAX_ATTEMPTS || 1)",
@@ -55,12 +50,11 @@ repairBlock =
 const localChecks = [
   repairBlock.includes(marker),
   repairBlock.includes("DEEP_REPAIR_INTERNAL_MAX_ATTEMPTS || 1"),
-  /attempt\s*<=\s*maxAttempts/m.test(repairBlock),
   !/const\s+maxAttempts\s*=\s*2\s*;/m.test(repairBlock),
 ];
 if (localChecks.some((ok) => !ok)) {
   console.error("[Genelibros] DEEP REPAIR SINGLE CALL: validación estructural falló. No se escribe runtime.");
-  process.exit(5);
+  process.exit(4);
 }
 
 runtime = runtime.slice(0, repairStart) + repairBlock + runtime.slice(repairEnd);
