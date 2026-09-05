@@ -43,6 +43,7 @@
     "deep:11c:retry-repair": "node scripts/retry-deep-work-repair-from-synthesis.mjs",
     "deep:11c:inspect": "node scripts/inspect-deep-work-job.mjs",
     "deep:11c:export": "node scripts/export-deep-work-candidate.mjs",
+    "deep:11c:apply-local-final": "node scripts/apply-deep-work-local-final.mjs",
     "deep:11c:dev": "node scripts/run-vercel-dev-with-local-env.mjs",
     "deep:11c:worker": "node scripts/patch-deep-work-v58.mjs && node scripts/patch-deep-work-credit-guard.mjs && node scripts/run-deep-work-worker-local.mjs",
     "deep:11c:verify": "npm run brain:11a:test && npm run deep:11c:test && npm run typecheck && npm run build",
