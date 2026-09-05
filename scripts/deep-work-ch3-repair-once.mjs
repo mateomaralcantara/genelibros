@@ -207,7 +207,9 @@ REGLAS OBLIGATORIAS:
   },
 });
 
-const repairedText = clean(response?.text);
+const repairedText = typeof response?.text === "function"
+  ? clean(response.text())
+  : clean(response?.text);
 const repairUsage = usageOf(response);
 const finishReason = clean(response?.candidates?.[0]?.finishReason).toUpperCase();
 if (!repairedText) {
@@ -229,6 +231,7 @@ const repairArtifactPayload = {
   requiredRepairs: Array.isArray(restoredQuality.requiredRepairs) ? restoredQuality.requiredRepairs : [],
   unsupportedNewClaims: Array.isArray(restoredQuality.unsupportedNewClaims) ? restoredQuality.unsupportedNewClaims : [],
   words: repairWords,
+  withinRequiredWordRange: repairWords >= minWords && repairWords <= maxWords,
   finishReason,
 };
 
@@ -324,6 +327,7 @@ console.log({
   status: updated.status,
   resumeFromStep: updated.checkpoint?.step,
   repairWords,
+  withinRequiredWordRange: repairWords >= minWords && repairWords <= maxWords,
   finishReason,
   repairModel: model,
   repairArtifactId: repairArtifactId || null,
