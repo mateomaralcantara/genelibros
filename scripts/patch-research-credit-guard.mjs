@@ -9,7 +9,7 @@ let worker = fs.readFileSync(workerFile, "utf8").replace(/\r\n?/g, "\n");
 let runtimeChanged = false;
 let workerChanged = false;
 
-// RESEARCH_CREDIT_GUARD_V1.4
+// RESEARCH_CREDIT_GUARD_V1.5
 // Fail-closed + self-healing installer.
 // - Gemini Flash por defecto.
 // - 1 intento por JSON bajo guard.
@@ -18,6 +18,7 @@ let workerChanged = false;
 // - max 18 llamadas LLM en pasada base.
 // - sin gap-loop automático después del primer dossier.
 // - criterios readyForWriting intactos.
+// - compatibilidad con esquema real: sections.chapter_number; NO order_index.
 
 function insertBefore(source, marker, block, alreadyMarker) {
   if (source.includes(alreadyMarker)) return { source, changed: false };
@@ -33,6 +34,18 @@ function insertAfterLineContaining(source, marker, block, alreadyMarker) {
   const eol = source.indexOf("\n", at);
   const pos = eol >= 0 ? eol + 1 : source.length;
   return { source: source.slice(0, pos) + block + (block.endsWith("\n") ? "" : "\n") + source.slice(pos), changed: true };
+}
+
+// 0) Compatibilidad del esquema: sections no tiene order_index.
+if (worker.includes("order_index")) {
+  const before = worker;
+  worker = worker
+    .replace('.select("title,content,chapter_number,order_index")', '.select("title,content,chapter_number")')
+    .replace('.or(`chapter_number.eq.${job.chapter_number},order_index.eq.${job.chapter_number}`)', '.eq("chapter_number",job.chapter_number)');
+  if (worker !== before) {
+    workerChanged = true;
+    console.log("[Genelibros] RESEARCH SCHEMA FIX: order_index eliminado; lookup por chapter_number.");
+  }
 }
 
 // 1) JSON retries: una sola llamada por defecto.
@@ -52,7 +65,7 @@ if (!runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS")) {
   }
 }
 
-// 2) Presupuesto por job. Se inserta antes de release(), no depende del formato de checkpoint.
+// 2) Presupuesto por job.
 {
   const block = `    const researchBudgetGuard = checkpoint.budgetGuard && typeof checkpoint.budgetGuard === "object" ? checkpoint.budgetGuard : {};\n    const researchCreditGuardEnabled = !["0", "false", "off"].includes(String(process.env.RESEARCH_CREDIT_GUARD || "1").trim().toLowerCase());\n    const researchMaxQueries = Math.max(1, Math.min(18, Number(researchBudgetGuard.maxQueries || process.env.RESEARCH_MAX_QUERIES || 5)));\n    const researchMaxSources = Math.max(3, Math.min(30, Number(researchBudgetGuard.maxSources || process.env.RESEARCH_MAX_SOURCES || 6)));\n    const researchMaxCalls = Math.max(8, Number(researchBudgetGuard.maxCalls || process.env.RESEARCH_MAX_LLM_CALLS || 18));\n    const researchFirstPassOnly = researchCreditGuardEnabled && researchBudgetGuard.firstPassOnly !== false;\n    const researchLlmSteps = new Set(["STRATEGY","QUERIES","DISCOVER","EVIDENCE","CLAIMS","CONTRADICTIONS","VERIFY","GAPS","DOSSIER","CRITICAL_RESOLVE"]);\n`;
   let out = insertBefore(worker, "    const release=async", block, "const researchBudgetGuard");
@@ -76,8 +89,7 @@ if (!runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS")) {
   }
 }
 
-// 4) Query cap ESTRUCTURAL.
-// No reescribimos release(). Recortamos out.queries inmediatamente después de buildQueries().
+// 4) Query cap estructural.
 if (!worker.includes("RESEARCH_QUERY_CAP_APPLIED")) {
   const queryCallRe = /(await\s+heartbeat\(\);\s*const\s+out\s*=\s*await\s+buildQueries\([\s\S]*?\);)/m;
   if (queryCallRe.test(worker)) {
@@ -90,9 +102,7 @@ if (!worker.includes("RESEARCH_QUERY_CAP_APPLIED")) {
   }
 }
 
-// 5) Source cap ESTRUCTURAL.
-// No tocamos rankSources(). Antes de entrar a RANK limitamos job.max_sources;
-// el código existente consume ese valor ya capado.
+// 5) Source cap estructural.
 if (!worker.includes("RESEARCH_SOURCE_CAP_APPLIED")) {
   const marker = '    if(checkpoint.step==="RANK"){';
   const block = `      // RESEARCH_SOURCE_CAP_APPLIED\n      if(researchCreditGuardEnabled){\n        job.max_sources=Math.min(Number(job.max_sources||10),researchMaxSources);\n      }\n`;
@@ -116,6 +126,7 @@ if (!worker.includes("RESEARCH_CREDIT_GUARD_FIRST_PASS_COMPLETE") && worker.incl
 
 // Fail closed: nada se escribe si falta una pieza.
 const required = [
+  ["schema compatibility", !worker.includes("order_index")],
   ["runtime retry guard", runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS")],
   ["per-job budget", worker.includes("const researchBudgetGuard")],
   ["hard call cap", worker.includes("RESEARCH_CREDIT_BUDGET_EXHAUSTED")],
@@ -130,5 +141,5 @@ if (runtimeChanged) fs.writeFileSync(runtimeFile, runtime, "utf8");
 if (workerChanged) fs.writeFileSync(workerFile, worker, "utf8");
 
 if (!runtimeChanged && !workerChanged) console.log("[Genelibros] RESEARCH CREDIT GUARD ya estaba instalado.");
-console.log("[Genelibros] RESEARCH CREDIT GUARD V1.4 COMPLETO: Flash, queries<=5, sources<=6, base<=18 llamadas, sin gap-loop automático.");
+console.log("[Genelibros] RESEARCH CREDIT GUARD V1.5 COMPLETO: schema OK, Flash, queries<=5, sources<=6, base<=18 llamadas, sin gap-loop automático.");
 console.log("[Genelibros] Overrides por job: checkpoint.budgetGuard.maxCalls/maxQueries/maxSources/firstPassOnly.");
