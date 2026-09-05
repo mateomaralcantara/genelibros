@@ -22,7 +22,7 @@ const localEnv = loadEnvFile(path.resolve(root, ".env.local"));
 const merged = { ...process.env, ...localEnv };
 
 const requiredGroups = [
-  ["RESEARCH_WORKER_SECRET"],
+  ["RESEARCH_WORKER_SECRET", "DEEP_WORKER_SECRET", "REFINERY_WORKER_SECRET", "OS4_WORKER_SECRET"],
   ["SUPABASE_URL", "VITE_SUPABASE_URL"],
   ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"],
   ["GEMINI_API_KEY", "VITE_GEMINI_API_KEY"],
@@ -40,7 +40,7 @@ if (missing.length) {
 }
 
 console.log("[Genelibros] .env.local cargado para Research Vercel Dev.");
-console.log("[Genelibros] RESEARCH_WORKER_SECRET/Supabase/Gemini detectados sin imprimir valores.");
+console.log("[Genelibros] Worker secret (Research o fallback existente), Supabase y Gemini detectados sin imprimir valores.");
 console.log("[Genelibros] Iniciando Research API en http://localhost:3000 ...\n");
 
 const isWindows = process.platform === "win32";
