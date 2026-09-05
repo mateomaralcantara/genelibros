@@ -84,8 +84,8 @@ let ready = false;
 for (let attempt = 0; attempt < 40; attempt += 1) {
   if (devExited) break;
   try {
-    const response = await fetch("http://localhost:3000/", { method: "GET" });
-    if (response.status > 0) {
+    const response = await fetch("http://localhost:3000/api/research-worker", { method: "GET" });
+    if (response.status === 405 || response.status === 401 || response.status === 200) {
       ready = true;
       break;
     }
@@ -95,12 +95,12 @@ for (let attempt = 0; attempt < 40; attempt += 1) {
 
 if (!ready) {
   killDev();
-  console.error(`[Genelibros] Research Dev no quedó disponible en puerto 3000. exit=${devExitCode ?? "running"}`);
+  console.error(`[Genelibros] /api/research-worker no quedó disponible en puerto 3000. exit=${devExitCode ?? "running"}`);
   console.error("[Genelibros] Worker NO ejecutado; no se autorizó consumo LLM desde este comando.");
   process.exit(3);
 }
 
-console.log("[Genelibros] API local disponible. Ejecutando Research Worker protegido...\n");
+console.log("[Genelibros] Ruta /api/research-worker disponible. Ejecutando worker protegido...\n");
 
 const worker = spawn(npmCommand, workerArgs, {
   cwd: root,
