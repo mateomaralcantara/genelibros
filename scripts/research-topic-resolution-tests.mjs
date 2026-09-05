@@ -13,7 +13,7 @@ const checks = [
   ["section title keeps first priority after explicit topic", source.includes("const topic = explicitTopic || titleTopic || outlineTopicResolution.topic || stateChapterTopicResolution.topic")],
   ["outline location is surfaced", source.includes("outlineLocation: outlineResolution.location")],
   ["state chapter hint is surfaced", source.includes("stateChapterHint: compactOutlineEntry(stateChapterEntry)")],
-  ["state book hints are surfaced", source.includes("state.book_topic")],
+  ["state book hints are surfaced", source.includes("state?.book_topic") || source.includes("state.book_topic")],
   ["checkpoint stores resolved blueprint context", source.includes("outlineContext: compactOutlineEntry(outlineEntry || stateChapterEntry)")],
   ["missing topic error lists state locations", source.includes("project.state.outline_12, project.state.chapters")],
   ["preflight remains zero LLM", source.includes("llmCallsMadeByPreflight: 0")],
