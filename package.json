@@ -50,6 +50,7 @@
     "deep:11c:dev": "node scripts/patch-deep-work-v58.mjs && node scripts/patch-deep-work-credit-guard.mjs && node scripts/patch-deep-work-model-compat.mjs && node scripts/patch-deep-work-json-sanitizer.mjs && node scripts/patch-deep-work-research-override.mjs && node scripts/patch-research-gap-source-cap.mjs && node scripts/patch-research-credit-guard.mjs && node scripts/run-vercel-dev-with-local-env.mjs",
     "deep:11c:worker": "node scripts/patch-deep-work-v58.mjs && node scripts/patch-deep-work-credit-guard.mjs && node scripts/patch-deep-work-model-compat.mjs && node scripts/patch-deep-work-json-sanitizer.mjs && node scripts/patch-deep-work-research-override.mjs && node scripts/run-deep-work-worker-local.mjs",
     "deep:11c:final-ch3": "node scripts/run-deep-ch3-final-v2.mjs",
+    "deep:11c:final-ch3:repair-once": "node scripts/run-deep-ch3-repair-once.mjs",
     "deep:11c:verify": "npm run brain:11a:test && npm run deep:11c:test && npm run deep:11c:guard-test && npm run typecheck && npm run build",
     "research:11d:test": "node scripts/research-11d-tests.mjs",
     "research:11d:budget": "node scripts/research-budget-preview.mjs",
