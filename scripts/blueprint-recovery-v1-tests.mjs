@@ -20,6 +20,8 @@ const checks = [
   ["no automatic repair or retry loop", !/for\s*\([^)]*attempt/i.test(blueprint) && !blueprint.includes("withRetry")],
   ["existing production blueprint costs zero", blueprint.includes("BLUEPRINT READY — no se consume LLM")],
   ["generic chapter titles rejected", blueprint.includes("isGenericTitle") && blueprint.includes("título genérico")],
+  ["prefixed legacy generic titles are normalized", blueprint.includes("function normalizeChapterTitle") && blueprint.includes("^capitulo\\s+\\d+")],
+  ["final runner applies same legacy generic policy", finalRunner.includes("function normalizeChapterTitle") && finalRunner.includes("^capitulo\\s+\\d+")],
   ["blueprint requires structured editorial depth", blueprint.includes("subheads.length < 5") && blueprint.includes("requiredFacts.length < 3")],
   ["completed chapters are context anchors", blueprint.includes("content_excerpt") && blueprint.includes("latest_research_topic")],
   ["book text is never rewritten", !blueprint.includes('.from("sections").update') && !blueprint.includes("upsertSection")],
