@@ -10,32 +10,59 @@ if (runtime.includes(marker)) {
   process.exit(0);
 }
 
-const repairStart = runtime.indexOf("export async function repairStep(");
+const repairSignature = "export async function repairStep(";
+const repairStart = runtime.indexOf(repairSignature);
 if (repairStart < 0) {
   console.error("[Genelibros] DEEP REPAIR SINGLE CALL: no se encontró repairStep. 0 llamadas LLM.");
   process.exit(2);
 }
-const afterRepair = runtime.slice(repairStart);
-const needle = "  const maxAttempts = 2;";
-const localAt = afterRepair.indexOf(needle);
-if (localAt < 0) {
-  console.error("[Genelibros] DEEP REPAIR SINGLE CALL: no se encontró maxAttempts=2 dentro de repairStep. 0 llamadas LLM.");
+
+const nextExportAt = runtime.indexOf(
+  "\nexport async function ",
+  repairStart + repairSignature.length,
+);
+const repairEnd = nextExportAt > repairStart ? nextExportAt : runtime.length;
+let repairBlock = runtime.slice(repairStart, repairEnd);
+
+if (!/attempt\s*<=\s*maxAttempts/m.test(repairBlock)) {
+  console.error("[Genelibros] DEEP REPAIR SINGLE CALL: repairStep ya no usa maxAttempts en su loop. 0 llamadas LLM.");
   process.exit(3);
 }
-const absoluteAt = repairStart + localAt;
+
+// Toleramos cualquier forma previa de la asignación: una línea, varias líneas,
+// literal 2, Math.max(...), Number(env...), etc. Solo tocamos la primera
+// declaración const maxAttempts dentro de repairStep.
+const maxAttemptsRe = /const\s+maxAttempts\s*=\s*[\s\S]*?;/m;
+const match = repairBlock.match(maxAttemptsRe);
+if (!match || typeof match.index !== "number") {
+  console.error("[Genelibros] DEEP REPAIR SINGLE CALL: no se encontró una declaración maxAttempts dentro de repairStep. 0 llamadas LLM.");
+  process.exit(4);
+}
+
 const replacement = [
-  "  // DEEP_REPAIR_SINGLE_CALL_V1_APPLIED",
+  "// DEEP_REPAIR_SINGLE_CALL_V1_APPLIED",
   "  const maxAttempts = Math.max(",
   "    1,",
   "    Number(process.env.DEEP_REPAIR_INTERNAL_MAX_ATTEMPTS || 1)",
   "  );",
 ].join("\n");
-runtime = runtime.slice(0, absoluteAt) + replacement + runtime.slice(absoluteAt + needle.length);
 
-if (!runtime.includes(marker) || !runtime.includes("DEEP_REPAIR_INTERNAL_MAX_ATTEMPTS || 1")) {
+repairBlock =
+  repairBlock.slice(0, match.index) +
+  replacement +
+  repairBlock.slice(match.index + match[0].length);
+
+const localChecks = [
+  repairBlock.includes(marker),
+  repairBlock.includes("DEEP_REPAIR_INTERNAL_MAX_ATTEMPTS || 1"),
+  /attempt\s*<=\s*maxAttempts/m.test(repairBlock),
+  !/const\s+maxAttempts\s*=\s*2\s*;/m.test(repairBlock),
+];
+if (localChecks.some((ok) => !ok)) {
   console.error("[Genelibros] DEEP REPAIR SINGLE CALL: validación estructural falló. No se escribe runtime.");
-  process.exit(4);
+  process.exit(5);
 }
 
+runtime = runtime.slice(0, repairStart) + repairBlock + runtime.slice(repairEnd);
 fs.writeFileSync(runtimeFile, runtime, "utf8");
 console.log("[Genelibros] DEEP REPAIR SINGLE CALL instalado: máximo 1 llamada interna por etapa REPAIR.");
