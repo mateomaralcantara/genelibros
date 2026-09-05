@@ -7,9 +7,30 @@ const templateFile = path.resolve(process.cwd(), "scripts/deep-work-repair-v58.t
 
 let runtime = fs.readFileSync(runtimeFile, "utf8");
 let worker = fs.readFileSync(workerFile, "utf8");
-const replacement = fs.readFileSync(templateFile, "utf8").trimEnd() + "\n\n";
+let template = fs.readFileSync(templateFile, "utf8");
+
+// Node 22 + /u rechaza el identity escape \" dentro de una clase de caracteres.
+// La comilla doble no necesita escape en un literal RegExp delimitado por /.../.
+const badSentenceSplit = '/(?<=[.!?])\\s+(?=[A-ZÁÉÍÓÚÑÜ¿¡0-9“\\"(])/u';
+const goodSentenceSplit = '/(?<=[.!?])\\s+(?=[A-ZÁÉÍÓÚÑÜ¿¡0-9“"(])/u';
+
+let templateChanged = false;
+if (template.includes(badSentenceSplit)) {
+  template = template.replaceAll(badSentenceSplit, goodSentenceSplit);
+  fs.writeFileSync(templateFile, template, "utf8");
+  templateChanged = true;
+  console.log("[Genelibros] V5.8 regex de separación de oraciones corregido en plantilla local.");
+}
+
 let runtimeChanged = false;
 let workerChanged = false;
+if (runtime.includes(badSentenceSplit)) {
+  runtime = runtime.replaceAll(badSentenceSplit, goodSentenceSplit);
+  runtimeChanged = true;
+  console.log("[Genelibros] V5.8 regex inválido corregido en runtime.");
+}
+
+const replacement = template.trimEnd() + "\n\n";
 
 if (!runtime.includes("TOKEN_GUARD_V5.8")) {
   const startMarker = "export async function repairStep";
@@ -54,4 +75,7 @@ if (!worker.includes("context: result.context") || !worker.includes("researchCon
 }
 
 if (workerChanged) fs.writeFileSync(workerFile, worker, "utf8");
+if (!templateChanged && !runtime.includes(badSentenceSplit)) {
+  console.log("[Genelibros] V5.8 regex de separación de oraciones: OK.");
+}
 console.log("[Genelibros] V5.8: prune-don't-rewrite para longitud; QUALITY quirúrgico cuando ya está en rango.");
