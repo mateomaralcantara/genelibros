@@ -4,13 +4,14 @@ import path from "node:path";
 const runtimeFile = path.resolve(process.cwd(), "src/server/research-intelligence-runtime.ts");
 const workerFile = path.resolve(process.cwd(), "src/server/vercel-handlers/research-worker.ts");
 
-let runtime = fs.readFileSync(runtimeFile, "utf8");
-let worker = fs.readFileSync(workerFile, "utf8");
+let runtime = fs.readFileSync(runtimeFile, "utf8").replace(/\r\n?/g, "\n");
+let worker = fs.readFileSync(workerFile, "utf8").replace(/\r\n?/g, "\n");
 let runtimeChanged = false;
 let workerChanged = false;
 
-// RESEARCH_CREDIT_GUARD_V1
-// Primera pasada controlada y verificable:
+// RESEARCH_CREDIT_GUARD_V1.1
+// Fail-closed installer: nunca declara el guard activo si falta una pieza.
+// Primera pasada controlada:
 // - Gemini 3.6 Flash por defecto;
 // - 1 intento por llamada JSON;
 // - máximo 5 queries de discovery;
@@ -19,6 +20,19 @@ let workerChanged = false;
 // - NO hace gap-closure automático después del primer dossier;
 // - no modifica criterios readyForWriting.
 
+function insertAfterLineContaining(source, marker, block, alreadyMarker) {
+  if (source.includes(alreadyMarker)) return { source, changed: false };
+  const at = source.indexOf(marker);
+  if (at < 0) return { source, changed: false };
+  const eol = source.indexOf("\n", at);
+  const pos = eol >= 0 ? eol + 1 : source.length;
+  return {
+    source: source.slice(0, pos) + block + (block.endsWith("\n") ? "" : "\n") + source.slice(pos),
+    changed: true,
+  };
+}
+
+// 1) JSON retries: 1 por defecto bajo guard.
 const oldLoop = "  for (let attempt = 1; attempt <= 3; attempt += 1) {";
 if (!runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS") && runtime.includes(oldLoop)) {
   const replacement = `  const researchCreditGuardEnabled = !["0", "false", "off"].includes(\n    clean(process.env.RESEARCH_CREDIT_GUARD || "1").toLowerCase()\n  );\n  const researchGenerateMaxAttempts = researchCreditGuardEnabled\n    ? Math.max(1, Number(process.env.RESEARCH_GENERATE_MAX_ATTEMPTS || 1))\n    : 3;\n\n  for (let attempt = 1; attempt <= researchGenerateMaxAttempts; attempt += 1) {`;
@@ -31,39 +45,59 @@ if (!runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS") && runtime.includes(oldL
   console.log("[Genelibros] RESEARCH CREDIT GUARD: JSON retries = 1 por defecto.");
 }
 
-const checkpointNeedle = '    const checkpoint={...(job.checkpoint||{}),step:job.checkpoint?.step||"INIT",usage:job.checkpoint?.usage||{calls:0,inputTokens:0,outputTokens:0,totalTokens:0},warnings:job.checkpoint?.warnings||[]};';
-if (!worker.includes("const researchBudgetGuard") && worker.includes(checkpointNeedle)) {
-  const replacement = `${checkpointNeedle}\n    const researchBudgetGuard = checkpoint.budgetGuard && typeof checkpoint.budgetGuard === "object" ? checkpoint.budgetGuard : {};\n    const researchCreditGuardEnabled = !["0", "false", "off"].includes(String(process.env.RESEARCH_CREDIT_GUARD || "1").trim().toLowerCase());\n    const researchMaxQueries = Math.max(1, Math.min(18, Number(researchBudgetGuard.maxQueries || process.env.RESEARCH_MAX_QUERIES || 5)));\n    const researchMaxSources = Math.max(3, Math.min(30, Number(researchBudgetGuard.maxSources || process.env.RESEARCH_MAX_SOURCES || 6)));\n    const researchMaxCalls = Math.max(8, Number(researchBudgetGuard.maxCalls || process.env.RESEARCH_MAX_LLM_CALLS || 18));\n    const researchFirstPassOnly = researchCreditGuardEnabled && researchBudgetGuard.firstPassOnly !== false;\n    const researchLlmSteps = new Set(["STRATEGY","QUERIES","DISCOVER","EVIDENCE","CLAIMS","CONTRADICTIONS","VERIFY","GAPS","DOSSIER","CRITICAL_RESOLVE"]);`;
-  worker = worker.replace(checkpointNeedle, replacement);
-  workerChanged = true;
-  console.log("[Genelibros] RESEARCH CREDIT GUARD: límites por job instalados.");
+// 2) Variables de presupuesto por job: insertar después de checkpoint sin depender de formato EOL.
+{
+  const block = `    const researchBudgetGuard = checkpoint.budgetGuard && typeof checkpoint.budgetGuard === "object" ? checkpoint.budgetGuard : {};\n    const researchCreditGuardEnabled = !["0", "false", "off"].includes(String(process.env.RESEARCH_CREDIT_GUARD || "1").trim().toLowerCase());\n    const researchMaxQueries = Math.max(1, Math.min(18, Number(researchBudgetGuard.maxQueries || process.env.RESEARCH_MAX_QUERIES || 5)));\n    const researchMaxSources = Math.max(3, Math.min(30, Number(researchBudgetGuard.maxSources || process.env.RESEARCH_MAX_SOURCES || 6)));\n    const researchMaxCalls = Math.max(8, Number(researchBudgetGuard.maxCalls || process.env.RESEARCH_MAX_LLM_CALLS || 18));\n    const researchFirstPassOnly = researchCreditGuardEnabled && researchBudgetGuard.firstPassOnly !== false;\n    const researchLlmSteps = new Set(["STRATEGY","QUERIES","DISCOVER","EVIDENCE","CLAIMS","CONTRADICTIONS","VERIFY","GAPS","DOSSIER","CRITICAL_RESOLVE"]);\n`;
+  const out = insertAfterLineContaining(worker, "    const checkpoint=", block, "const researchBudgetGuard");
+  worker = out.source;
+  if (out.changed) {
+    workerChanged = true;
+    console.log("[Genelibros] RESEARCH CREDIT GUARD: límites por job instalados.");
+  }
 }
 
-const heartbeatNeedle = '    const heartbeat=async()=>{const {error}=await admin.rpc("research_heartbeat_job",{p_job_id:job.id,p_worker_id:workerId,p_lease_seconds:240});if(error)throw error;};';
-if (!worker.includes("RESEARCH_CREDIT_BUDGET_EXHAUSTED") && worker.includes(heartbeatNeedle)) {
-  const replacement = `${heartbeatNeedle}\n    if (researchCreditGuardEnabled && researchLlmSteps.has(checkpoint.step) && Number(checkpoint.usage?.calls || 0) >= researchMaxCalls) {\n      const budgetResult = {\n        readyForWriting: false,\n        budgetExhausted: true,\n        gapClosureStopReason: "RESEARCH_CREDIT_BUDGET_EXHAUSTED",\n        usage: checkpoint.usage,\n        budgetGuard: {\n          enabled: true,\n          maxCalls: researchMaxCalls,\n          callsUsed: Number(checkpoint.usage?.calls || 0),\n          stoppedBefore: checkpoint.step,\n          maxQueries: researchMaxQueries,\n          maxSources: researchMaxSources,\n          firstPassOnly: researchFirstPassOnly\n        }\n      };\n      const {error:budgetCompleteError}=await admin.rpc("research_complete_job",{\n        p_job_id:job.id,\n        p_worker_id:workerId,\n        p_result:budgetResult,\n        p_checkpoint:{...checkpoint,step:"COMPLETED",budgetGuardHit:budgetResult.budgetGuard}\n      });\n      if(budgetCompleteError)throw budgetCompleteError;\n      return json(res,200,{ok:true,job_id:job.id,status:"COMPLETED",progress:100,result:budgetResult,message:"RESEARCH_CREDIT_BUDGET_EXHAUSTED"});\n    }`;
-  worker = worker.replace(heartbeatNeedle, replacement);
-  workerChanged = true;
-  console.log("[Genelibros] RESEARCH CREDIT GUARD: hard cap de llamadas instalado.");
+// 3) Hard cap: se evalúa antes de cada etapa LLM.
+{
+  const block = `    if (researchCreditGuardEnabled && researchLlmSteps.has(checkpoint.step) && Number(checkpoint.usage?.calls || 0) >= researchMaxCalls) {\n      const budgetResult = {\n        readyForWriting: false,\n        budgetExhausted: true,\n        gapClosureStopReason: "RESEARCH_CREDIT_BUDGET_EXHAUSTED",\n        usage: checkpoint.usage,\n        budgetGuard: {\n          enabled: true,\n          maxCalls: researchMaxCalls,\n          callsUsed: Number(checkpoint.usage?.calls || 0),\n          stoppedBefore: checkpoint.step,\n          maxQueries: researchMaxQueries,\n          maxSources: researchMaxSources,\n          firstPassOnly: researchFirstPassOnly\n        }\n      };\n      const {error:budgetCompleteError}=await admin.rpc("research_complete_job",{\n        p_job_id:job.id,\n        p_worker_id:workerId,\n        p_result:budgetResult,\n        p_checkpoint:{...checkpoint,step:"COMPLETED",budgetGuardHit:budgetResult.budgetGuard}\n      });\n      if(budgetCompleteError)throw budgetCompleteError;\n      return json(res,200,{ok:true,job_id:job.id,status:"COMPLETED",progress:100,result:budgetResult,message:"RESEARCH_CREDIT_BUDGET_EXHAUSTED"});\n    }\n`;
+  const out = insertAfterLineContaining(worker, "    const heartbeat=async()=>", block, "RESEARCH_CREDIT_BUDGET_EXHAUSTED");
+  worker = out.source;
+  if (out.changed) {
+    workerChanged = true;
+    console.log("[Genelibros] RESEARCH CREDIT GUARD: hard cap de llamadas instalado.");
+  }
 }
 
-const queriesOld = '      await heartbeat();const out=await buildQueries({topic:job.topic,questions:checkpoint.strategy?.questions||[]});\n      return release({...checkpoint,step:"DISCOVER",queries:out.queries,nextQueryIndex:0,usage:addUsage(checkpoint.usage,out.usage),model:out.model},14);';
-if (!worker.includes("researchMaxQueries) : out.queries") && worker.includes(queriesOld)) {
-  const queriesNew = '      await heartbeat();const out=await buildQueries({topic:job.topic,questions:checkpoint.strategy?.questions||[]});\n      const controlledQueries=researchCreditGuardEnabled ? out.queries.slice(0,researchMaxQueries) : out.queries;\n      return release({...checkpoint,step:"DISCOVER",queries:controlledQueries,nextQueryIndex:0,usage:addUsage(checkpoint.usage,out.usage),model:out.model},14,{queries:controlledQueries.length,query_cap:researchCreditGuardEnabled?researchMaxQueries:null});';
-  worker = worker.replace(queriesOld, queriesNew);
-  workerChanged = true;
-  console.log("[Genelibros] RESEARCH CREDIT GUARD: discovery queries limitadas.");
+// 4) Limitar queries generadas, sin otra llamada LLM.
+if (!worker.includes("const controlledQueries=")) {
+  const queryLine = '      await heartbeat();const out=await buildQueries({topic:job.topic,questions:checkpoint.strategy?.questions||[]});';
+  if (worker.includes(queryLine)) {
+    worker = worker.replace(
+      queryLine,
+      queryLine + '\n      const controlledQueries=researchCreditGuardEnabled ? out.queries.slice(0,researchMaxQueries) : out.queries;'
+    );
+    worker = worker.replace(
+      'return release({...checkpoint,step:"DISCOVER",queries:out.queries,nextQueryIndex:0,usage:addUsage(checkpoint.usage,out.usage),model:out.model},14);',
+      'return release({...checkpoint,step:"DISCOVER",queries:controlledQueries,nextQueryIndex:0,usage:addUsage(checkpoint.usage,out.usage),model:out.model},14,{queries:controlledQueries.length,query_cap:researchCreditGuardEnabled?researchMaxQueries:null});'
+    );
+    workerChanged = true;
+    console.log("[Genelibros] RESEARCH CREDIT GUARD: discovery queries limitadas.");
+  }
 }
 
-const rankOld = '      const ranked=rankSources(checkpoint.sources||[],Number(job.max_sources||10));if(!ranked.length)throw new Error("Research Intelligence no obtuvo fuentes utilizables.");';
-if (!worker.includes("controlledSourceLimit") && worker.includes(rankOld)) {
-  const rankNew = '      const controlledSourceLimit=researchCreditGuardEnabled?Math.min(Number(job.max_sources||10),researchMaxSources):Number(job.max_sources||10);\n      const ranked=rankSources(checkpoint.sources||[],controlledSourceLimit);if(!ranked.length)throw new Error("Research Intelligence no obtuvo fuentes utilizables.");';
-  worker = worker.replace(rankOld, rankNew);
-  workerChanged = true;
-  console.log("[Genelibros] RESEARCH CREDIT GUARD: fuentes de primera pasada limitadas.");
+// 5) Limitar fuentes de la primera pasada.
+if (!worker.includes("const controlledSourceLimit=")) {
+  const rankLine = '      const ranked=rankSources(checkpoint.sources||[],Number(job.max_sources||10));if(!ranked.length)throw new Error("Research Intelligence no obtuvo fuentes utilizables.");';
+  if (worker.includes(rankLine)) {
+    worker = worker.replace(
+      rankLine,
+      '      const controlledSourceLimit=researchCreditGuardEnabled?Math.min(Number(job.max_sources||10),researchMaxSources):Number(job.max_sources||10);\n      const ranked=rankSources(checkpoint.sources||[],controlledSourceLimit);if(!ranked.length)throw new Error("Research Intelligence no obtuvo fuentes utilizables.");'
+    );
+    workerChanged = true;
+    console.log("[Genelibros] RESEARCH CREDIT GUARD: fuentes de primera pasada limitadas.");
+  }
 }
 
-const readyBlockMarker = '      if(out.dossier.readyForWriting){';
+// 6) Después del primer dossier, persistir y detener antes de gap loops si aún no está ready.
 const blockerComment = '      /*\n       * ======================================================\n       * 11D.5.1 — FINAL BLOCKER FOLLOW-UP';
 if (!worker.includes("RESEARCH_CREDIT_GUARD_FIRST_PASS_COMPLETE") && worker.includes(blockerComment)) {
   const insertAt = worker.indexOf(blockerComment);
@@ -73,11 +107,25 @@ if (!worker.includes("RESEARCH_CREDIT_GUARD_FIRST_PASS_COMPLETE") && worker.incl
   console.log("[Genelibros] RESEARCH CREDIT GUARD: gap closure automático bloqueado tras primera pasada.");
 }
 
+// Fail closed: si falta cualquier pieza, no escribimos una instalación que parezca válida.
+const required = [
+  ["runtime retry guard", runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS")],
+  ["per-job budget", worker.includes("const researchBudgetGuard")],
+  ["hard call cap", worker.includes("RESEARCH_CREDIT_BUDGET_EXHAUSTED")],
+  ["query cap", worker.includes("const controlledQueries=")],
+  ["source cap", worker.includes("const controlledSourceLimit=")],
+  ["first-pass stop", worker.includes("RESEARCH_CREDIT_GUARD_FIRST_PASS_COMPLETE")],
+];
+const missing = required.filter(([, ok]) => !ok).map(([name]) => name);
+if (missing.length) {
+  throw new Error(`RESEARCH_CREDIT_GUARD_PATCH_INCOMPLETE: ${missing.join(", ")}`);
+}
+
 if (runtimeChanged) fs.writeFileSync(runtimeFile, runtime, "utf8");
 if (workerChanged) fs.writeFileSync(workerFile, worker, "utf8");
 
 if (!runtimeChanged && !workerChanged) {
   console.log("[Genelibros] RESEARCH CREDIT GUARD ya estaba instalado.");
 }
-console.log("[Genelibros] RESEARCH CREDIT GUARD activo: Flash, queries<=5, sources<=6, base<=18 llamadas, sin gap-loop automático.");
+console.log("[Genelibros] RESEARCH CREDIT GUARD V1.1 COMPLETO: Flash, queries<=5, sources<=6, base<=18 llamadas, sin gap-loop automático.");
 console.log("[Genelibros] Overrides por job: checkpoint.budgetGuard.maxCalls/maxQueries/maxSources/firstPassOnly.");
