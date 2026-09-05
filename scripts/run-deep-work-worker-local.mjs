@@ -46,8 +46,15 @@ while (true) {
     const fatalConfig =
       response.status === 401 ||
       /Falta DEEP_WORKER_SECRET|REFINERY_WORKER_SECRET|OS4_WORKER_SECRET|credenciales server-side de Supabase|GEMINI_API_KEY/i.test(message);
-    if (fatalConfig) {
-      console.error("[Genelibros] Error de configuración local. Worker detenido para evitar reintentos inútiles.");
+    const fatalRouter =
+      message === "ROUTER_IMPORT_FAILED" ||
+      String(body?.diagnostic?.name || "") === "SyntaxError";
+    if (fatalConfig || fatalRouter) {
+      console.error(
+        fatalRouter
+          ? "[Genelibros] Error fatal de importación/router. Worker detenido para evitar reintentos inútiles."
+          : "[Genelibros] Error de configuración local. Worker detenido para evitar reintentos inútiles."
+      );
       process.exit(5);
     }
     if (body?.status === "DEAD_LETTER") process.exit(4);
