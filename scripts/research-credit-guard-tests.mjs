@@ -10,7 +10,7 @@ const checks = [
   ["single JSON attempt under guard", runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS || 1")],
   ["worker per-job budget guard", worker.includes("const researchBudgetGuard")],
   ["worker hard call cap", worker.includes("RESEARCH_CREDIT_BUDGET_EXHAUSTED")],
-  ["query cap installed", worker.includes("controlledQueries") && worker.includes("researchMaxQueries") && worker.includes("queries:controlledQueries")],
+  ["query cap installed", worker.includes("RESEARCH_QUERY_CAP_APPLIED") && worker.includes("out.queries.slice(0,researchMaxQueries)") && worker.includes("researchMaxQueries")],
   ["source cap installed", worker.includes("RESEARCH_SOURCE_CAP_APPLIED") && worker.includes("job.max_sources=Math.min") && worker.includes("researchMaxSources")],
   ["first pass stops before gap loops", worker.includes("RESEARCH_CREDIT_GUARD_FIRST_PASS_COMPLETE")],
   ["ready criteria still require verified claims", runtime.includes("verified.length>=3")],
