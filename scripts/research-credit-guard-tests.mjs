@@ -14,6 +14,7 @@ const checks = [
   ["sections schema uses chapter_number only", !worker.includes("order_index") && !preflight.includes("order_index") && worker.includes('eq("chapter_number",job.chapter_number)')],
   ["preflight resolves exact outline chapter", preflight.includes("outlineEntryFor(project, chapterNumber)") && preflight.includes("outlineChapterHint")],
   ["preflight topic can come from outline", preflight.includes("outlineTopicResolution.topic") && preflight.includes("resolvedTopicSource")],
+  ["server reuses existing worker secret", worker.includes("process.env.DEEP_WORKER_SECRET") && worker.includes("process.env.REFINERY_WORKER_SECRET") && worker.includes("process.env.OS4_WORKER_SECRET")],
   ["worker per-job budget guard", worker.includes("const researchBudgetGuard")],
   ["worker hard call cap", worker.includes("RESEARCH_CREDIT_BUDGET_EXHAUSTED")],
   ["query cap installed", worker.includes("RESEARCH_QUERY_CAP_APPLIED") && worker.includes("out.queries.slice(0,researchMaxQueries)") && worker.includes("researchMaxQueries")],
@@ -25,8 +26,9 @@ const checks = [
   ["ready criteria coverage intact", runtime.includes("coverage>=7.5")],
   ["ready criteria factual confidence intact", runtime.includes("factual>=7.5")],
   ["worker command installs research guard", String(pkg.scripts?.["research:11d:worker"] || "").includes("patch-research-credit-guard.mjs")],
-  ["research worker loads .env.local", localWorkerRunner.includes('loadEnv(path.resolve(".env.local"))') && localWorkerRunner.includes("RESEARCH_WORKER_SECRET")],
-  ["research dev requires research secret", researchDevRunner.includes('["RESEARCH_WORKER_SECRET"]') && researchDevRunner.includes("0 llamadas LLM realizadas")],
+  ["research worker loads .env.local", localWorkerRunner.includes('loadEnv(path.resolve(".env.local"))')],
+  ["research worker accepts existing secret fallbacks", localWorkerRunner.includes("process.env.DEEP_WORKER_SECRET") && localWorkerRunner.includes("process.env.REFINERY_WORKER_SECRET") && localWorkerRunner.includes("process.env.OS4_WORKER_SECRET")],
+  ["research dev accepts existing secret fallbacks", researchDevRunner.includes('"DEEP_WORKER_SECRET"') && researchDevRunner.includes('"REFINERY_WORKER_SECRET"') && researchDevRunner.includes('"OS4_WORKER_SECRET"')],
   ["research dev uses dedicated launcher", String(pkg.scripts?.["research:11d:dev"] || "").includes("run-research-vercel-dev-with-local-env.mjs")],
 ];
 
