@@ -17,10 +17,16 @@ function loadEnv(file) {
 loadEnv(path.resolve(".env.local"));
 
 const url = process.env.RESEARCH_WORKER_URL || "http://localhost:3000/api/research-worker";
-const secret = String(process.env.RESEARCH_WORKER_SECRET || "").trim();
+const secret = String(
+  process.env.RESEARCH_WORKER_SECRET ||
+  process.env.DEEP_WORKER_SECRET ||
+  process.env.REFINERY_WORKER_SECRET ||
+  process.env.OS4_WORKER_SECRET ||
+  ""
+).trim();
 
 if (!secret) {
-  console.error("[Genelibros] Falta RESEARCH_WORKER_SECRET en .env.local. Worker detenido antes de hacer llamadas de red/LLM.");
+  console.error("[Genelibros] Falta RESEARCH_WORKER_SECRET o fallback DEEP_WORKER_SECRET/REFINERY_WORKER_SECRET/OS4_WORKER_SECRET en .env.local. Worker detenido antes de hacer llamadas de red/LLM.");
   process.exit(2);
 }
 
@@ -28,7 +34,7 @@ console.log("\n================================================");
 console.log(" GENELIBROS 11D — LOCAL RESEARCH INTELLIGENCE");
 console.log("================================================");
 console.log("[Genelibros] .env.local cargado para Research Worker.");
-console.log("[Genelibros] RESEARCH_WORKER_SECRET detectado sin imprimir su valor.");
+console.log("[Genelibros] Secreto de worker detectado (Research o fallback existente) sin imprimir su valor.");
 console.log("Worker:", url, "\n");
 
 let tick = 0;
@@ -50,7 +56,7 @@ while (tick < 250) {
       const message = String(body?.error || body?.message || "");
       const fatalConfig =
         r.status === 401 ||
-        /Faltan variables del Research worker|RESEARCH_WORKER_SECRET|credenciales server-side de Supabase|GEMINI_API_KEY/i.test(message);
+        /Faltan variables del Research worker|RESEARCH_WORKER_SECRET|DEEP_WORKER_SECRET|REFINERY_WORKER_SECRET|OS4_WORKER_SECRET|credenciales server-side de Supabase|GEMINI_API_KEY/i.test(message);
       if (fatalConfig) {
         console.error("[Genelibros] Error fatal de configuración/autenticación. Worker detenido para evitar reintentos inútiles.");
         process.exit(5);
