@@ -33,6 +33,7 @@ runNode("scripts/patch-research-document-ingestion.mjs");
 runNode("scripts/patch-research-evidence-semantics.mjs");
 runNode("scripts/patch-research-credit-guard.mjs");
 runNode("scripts/deep-production-book-universal-v1-tests.mjs");
+runNode("scripts/research-topic-resolution-tests.mjs");
 runNode("scripts/research-document-ingestion-tests.mjs");
 runNode("scripts/research-evidence-semantics-tests.mjs");
 runNode("scripts/research-credit-guard-tests.mjs");
