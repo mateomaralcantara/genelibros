@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { PDFParse } from "pdf-parse";
 
 const DEFAULT_MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 const HARD_MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
@@ -168,60 +168,27 @@ export async function extractPdfText(bytes: Uint8Array) {
     );
   }
 
-  const loadingTask = getDocument({
-    data: bytes,
-    isEvalSupported: false,
-    useSystemFonts: false,
-    useWorkerFetch: false,
-  } as any);
-
-  const pdf = await loadingTask.promise;
-  const parts: string[] = [];
-  let chars = 0;
-
+  const parser = new PDFParse({ data: bytes });
   try {
-    const pageCount = Math.min(pdf.numPages, limits.maxPdfPages);
+    const result = await parser.getText({
+      first: limits.maxPdfPages,
+      lineEnforce: true,
+      cellSeparator: "\t",
+      pageJoiner: "\n### PAGE page_number / total_number\n",
+    });
 
-    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-      const page = await pdf.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const lines: string[] = [];
-      let current = "";
-
-      for (const item of content.items as any[]) {
-        const token = typeof item?.str === "string" ? item.str.trim() : "";
-        if (token) current += `${current ? " " : ""}${token}`;
-        if (item?.hasEOL && current) {
-          lines.push(current);
-          current = "";
-        }
-      }
-      if (current) lines.push(current);
-
-      const block = `### PAGE ${pageNumber}\n${lines.join("\n")}`.trim();
-      const remaining = limits.maxChars - chars;
-      if (remaining <= 0) break;
-
-      const clipped = block.slice(0, remaining);
-      if (clipped) parts.push(clipped);
-      chars += clipped.length + 2;
-
-      if (clipped.length < block.length) {
-        parts.push("[GENELIBROS_PDF_TRUNCATED]");
-        break;
-      }
+    let text = String(result?.text || "").trim();
+    const totalPages = Number(result?.total || 0);
+    if (totalPages > limits.maxPdfPages) {
+      text += `\n[GENELIBROS_PDF_PAGE_LIMIT ${limits.maxPdfPages}/${totalPages}]`;
     }
 
-    if (pdf.numPages > limits.maxPdfPages && chars < limits.maxChars) {
-      parts.push(`[GENELIBROS_PDF_PAGE_LIMIT ${limits.maxPdfPages}/${pdf.numPages}]`);
-    }
+    text = clipText(text, limits.maxChars);
+    if (!text) throw new Error("PDF sin texto extraíble. Puede ser un escaneo sin capa de texto.");
+    return text;
   } finally {
-    await pdf.destroy().catch(() => undefined);
+    await parser.destroy().catch(() => undefined);
   }
-
-  const text = clipText(parts.join("\n\n"), limits.maxChars);
-  if (!text) throw new Error("PDF sin texto extraíble. Puede ser un escaneo sin capa de texto.");
-  return text;
 }
 
 export async function extractResearchDocumentText(input: {
