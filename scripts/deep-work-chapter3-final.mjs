@@ -83,6 +83,74 @@ if (metrics.coverage < 7.5 || metrics.evidence < 7.5 || metrics.factual < 7.5 ||
   process.exit(3);
 }
 
+// Primero buscamos el job final idempotente. Si el intento anterior falló por
+// configuración/modelo, reactivamos ESE MISMO job conservando checkpoint/result.
+const { data: prior, error: priorError } = await s
+  .from("deep_work_jobs")
+  .select("id,status,objective,progress,result,checkpoint,created_at")
+  .eq("user_id", sourceJob.user_id)
+  .eq("project_id", sourceJob.project_id)
+  .eq("chapter_number", CHAPTER)
+  .order("created_at", { ascending: false })
+  .limit(15);
+if (priorError) throw priorError;
+
+const existingFinal = (prior || []).find((j) => clean(j.objective).includes(FINAL_MARKER));
+if (existingFinal) {
+  const resumable = ["RETRYING", "FAILED", "DEAD_LETTER"].includes(clean(existingFinal.status).toUpperCase());
+
+  if (resumable) {
+    const now = new Date().toISOString();
+    const { data: resumed, error: resumeError } = await s
+      .from("deep_work_jobs")
+      .update({
+        status: "QUEUED",
+        attempts: 0,
+        error: null,
+        last_error: null,
+        dead_letter_at: null,
+        next_retry_at: now,
+        locked_by: null,
+        locked_at: null,
+        heartbeat_at: null,
+        lease_expires_at: null,
+        updated_at: now,
+      })
+      .eq("id", existingFinal.id)
+      .select("id,status,progress,checkpoint,result")
+      .single();
+    if (resumeError || !resumed) throw resumeError || new Error("No se pudo reactivar el job final existente.");
+
+    console.log("\n================================================");
+    console.log(" GENELIBROS — JOB FINAL EXISTENTE REACTIVADO");
+    console.log("================================================");
+    console.log({
+      jobId: resumed.id,
+      status: resumed.status,
+      progress: resumed.progress,
+      resumeFromStep: resumed.checkpoint?.step || null,
+      callsAlreadyRecorded: Number(resumed.result?.usage?.calls || 0),
+      maxLlmCalls: MAX_CALLS,
+      dossierId: DOSSIER_ID,
+      reason: "retry after model compatibility fix",
+    });
+    process.exit(0);
+  }
+
+  console.log("[Genelibros] Job final del Capítulo 3 ya existe; se reutiliza y no se duplica:");
+  console.log({
+    id: existingFinal.id,
+    status: existingFinal.status,
+    progress: existingFinal.progress,
+    resumeFromStep: existingFinal.checkpoint?.step || null,
+    quality: existingFinal.result?.quality?.overallScore ?? null,
+    verdict: existingFinal.result?.quality?.verdict ?? null,
+    applyAllowed: existingFinal.result?.applyAllowed ?? false,
+  });
+  process.exit(0);
+}
+
+// Solo bloqueamos otros jobs activos si no existe nuestro job final idempotente.
 const { data: active, error: activeError } = await s
   .from("deep_work_jobs")
   .select("id,status,objective,progress,created_at")
@@ -94,32 +162,9 @@ const { data: active, error: activeError } = await s
   .limit(5);
 if (activeError) throw activeError;
 if ((active || []).length) {
-  console.error("[Genelibros] BLOCKED: ya existe un Deep Work activo para Capítulo 3.");
+  console.error("[Genelibros] BLOCKED: existe otro Deep Work activo para Capítulo 3.");
   console.error(active);
   process.exit(4);
-}
-
-const { data: prior, error: priorError } = await s
-  .from("deep_work_jobs")
-  .select("id,status,objective,progress,result,created_at")
-  .eq("user_id", sourceJob.user_id)
-  .eq("project_id", sourceJob.project_id)
-  .eq("chapter_number", CHAPTER)
-  .order("created_at", { ascending: false })
-  .limit(10);
-if (priorError) throw priorError;
-const existingFinal = (prior || []).find((j) => clean(j.objective).includes(FINAL_MARKER));
-if (existingFinal) {
-  console.log("[Genelibros] Job final del Capítulo 3 ya existe; no se duplica:");
-  console.log({
-    id: existingFinal.id,
-    status: existingFinal.status,
-    progress: existingFinal.progress,
-    quality: existingFinal.result?.quality?.overallScore ?? null,
-    verdict: existingFinal.result?.quality?.verdict ?? null,
-    applyAllowed: existingFinal.result?.applyAllowed ?? false,
-  });
-  process.exit(0);
 }
 
 const objective = [
