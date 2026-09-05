@@ -9,7 +9,7 @@ let worker = fs.readFileSync(workerFile, "utf8").replace(/\r\n?/g, "\n");
 let runtimeChanged = false;
 let workerChanged = false;
 
-// RESEARCH_CREDIT_GUARD_V1.3
+// RESEARCH_CREDIT_GUARD_V1.4
 // Fail-closed + self-healing installer.
 // - Gemini Flash por defecto.
 // - 1 intento por JSON bajo guard.
@@ -76,14 +76,14 @@ if (!runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS")) {
   }
 }
 
-// 4) Query cap. Se recorta el array producido sin comprar otra llamada.
-if (!worker.includes("const controlledQueries=")) {
+// 4) Query cap ESTRUCTURAL.
+// No reescribimos release(). Recortamos out.queries inmediatamente después de buildQueries().
+if (!worker.includes("RESEARCH_QUERY_CAP_APPLIED")) {
   const queryCallRe = /(await\s+heartbeat\(\);\s*const\s+out\s*=\s*await\s+buildQueries\([\s\S]*?\);)/m;
   if (queryCallRe.test(worker)) {
-    worker = worker.replace(queryCallRe, `$1\n      const controlledQueries=researchCreditGuardEnabled ? out.queries.slice(0,researchMaxQueries) : out.queries;`);
     worker = worker.replace(
-      /queries\s*:\s*out\.queries\s*,\s*nextQueryIndex\s*:\s*0/,
-      "queries:controlledQueries,nextQueryIndex:0"
+      queryCallRe,
+      `$1\n      // RESEARCH_QUERY_CAP_APPLIED\n      if(researchCreditGuardEnabled){\n        out.queries=Array.isArray(out.queries)?out.queries.slice(0,researchMaxQueries):[];\n      }`
     );
     workerChanged = true;
     console.log("[Genelibros] RESEARCH CREDIT GUARD: discovery queries limitadas.");
@@ -119,7 +119,7 @@ const required = [
   ["runtime retry guard", runtime.includes("RESEARCH_GENERATE_MAX_ATTEMPTS")],
   ["per-job budget", worker.includes("const researchBudgetGuard")],
   ["hard call cap", worker.includes("RESEARCH_CREDIT_BUDGET_EXHAUSTED")],
-  ["query cap", worker.includes("const controlledQueries=") && worker.includes("queries:controlledQueries")],
+  ["query cap", worker.includes("RESEARCH_QUERY_CAP_APPLIED") && worker.includes("out.queries.slice(0,researchMaxQueries)")],
   ["source cap", worker.includes("RESEARCH_SOURCE_CAP_APPLIED") && worker.includes("researchMaxSources")],
   ["first-pass stop", worker.includes("RESEARCH_CREDIT_GUARD_FIRST_PASS_COMPLETE")],
 ];
@@ -130,5 +130,5 @@ if (runtimeChanged) fs.writeFileSync(runtimeFile, runtime, "utf8");
 if (workerChanged) fs.writeFileSync(workerFile, worker, "utf8");
 
 if (!runtimeChanged && !workerChanged) console.log("[Genelibros] RESEARCH CREDIT GUARD ya estaba instalado.");
-console.log("[Genelibros] RESEARCH CREDIT GUARD V1.3 COMPLETO: Flash, queries<=5, sources<=6, base<=18 llamadas, sin gap-loop automático.");
+console.log("[Genelibros] RESEARCH CREDIT GUARD V1.4 COMPLETO: Flash, queries<=5, sources<=6, base<=18 llamadas, sin gap-loop automático.");
 console.log("[Genelibros] Overrides por job: checkpoint.budgetGuard.maxCalls/maxQueries/maxSources/firstPassOnly.");
