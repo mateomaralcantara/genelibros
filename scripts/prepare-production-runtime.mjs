@@ -4,8 +4,10 @@ import process from "node:process";
 const patchers = [
   "scripts/patch-research-gap-source-cap.mjs",
   "scripts/patch-research-document-ingestion.mjs",
+  "scripts/patch-pdf-parse-node-runtime.mjs",
   "scripts/patch-research-evidence-semantics.mjs",
   "scripts/patch-research-credit-guard.mjs",
+  "scripts/patch-research-router-preauth.mjs",
   "scripts/patch-deep-work-v58.mjs",
   "scripts/patch-deep-work-credit-guard.mjs",
   "scripts/patch-deep-work-model-compat.mjs",

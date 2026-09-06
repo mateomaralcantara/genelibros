@@ -115,6 +115,7 @@ console.log(`[Genelibros] Vercel rewrites críticos: ${requiredRoutes.length}/${
 
 // Source of truth: execute the exact same deterministic preparation path used by Vercel.
 runNode("scripts/prepare-production-runtime.mjs");
+runNode("scripts/pdf-parse-node-import-tests.mjs");
 
 // Run every installer a second time to prove idempotence/fail-closed behavior.
 runNode("scripts/patch-research-gap-source-cap.mjs");
