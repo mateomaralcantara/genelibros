@@ -789,7 +789,9 @@ const GenerationDashboard = function GenerationDashboard({
                 const n = typeof ch?.chapter_number === "number" ? ch.chapter_number : 0;
                 const key = `chap-${n}`;
                 const st = (gp?.[key] || "pending") as Status;
-                const title = String(ch?.title || ch?.chapter_title || `Capítulo ${n}`);
+                // GENELIBROS_V14_4_TITLE_DISPLAY
+                // effectiveOutline.chapter_title ya representa el título editorial canónico.
+                const title = String(ch?.chapter_title || ch?.title || `Capítulo ${n}`);
                 const words = chapterWordsByNum.get(n) || 0;
 
                 return (

@@ -636,6 +636,39 @@ function enforceCanonicalBookTitle(currentProject: any, mergedState: any, dashbo
   return canonicalTitle;
 }
 
+// GENELIBROS_V14_4_CANONICAL_CHAPTER_TITLES
+// El título planificado del outline es la fuente canónica. Un resultado parcial
+// del modelo nunca debe convertir "Capítulo 4: Título real" en solo "Capítulo 4".
+function pickCanonicalChapterTitle(chapterNumber: number, ...candidates: unknown[]): string {
+  const n = Number(chapterNumber || 0) || 0;
+  const fallback = n > 0 ? `Capítulo ${n}` : "Capítulo";
+  let firstNonEmpty = "";
+
+  for (const candidate of candidates) {
+    const raw = String(candidate ?? "").trim();
+    if (!raw) continue;
+
+    const stripped = n > 0
+      ? raw.replace(new RegExp(String.raw`^\\s*cap[ií]tulo\\s*${n}\\s*[:\\-–—.]\\s*`, "i"), "").trim()
+      : raw;
+    const value = stripped || raw;
+
+    if (!firstNonEmpty) firstNonEmpty = value;
+
+    const normalized = value.toLowerCase().replace(/\\s+/g, " ").trim();
+    const generic = n > 0 && (
+      normalized === `capítulo ${n}` ||
+      normalized === `capitulo ${n}` ||
+      normalized === `chapter ${n}` ||
+      normalized === `parte ${n}`
+    );
+
+    if (!generic) return value;
+  }
+
+  return firstNonEmpty || fallback;
+}
+
 export function buildMasterFromState(state: ProjectState, title?: string): string {
   const parts: string[] = [];
   const bookTitle = (title || (state as any).book_title || "Documento maestro").trim();
@@ -647,13 +680,26 @@ export function buildMasterFromState(state: ProjectState, title?: string): strin
   const introText = ensureString((state as any).introduction?.text, "").trim();
   if (introText) parts.push(`## Introducción\n\n${introText}`);
 
+  const outlineTitleByNum = new Map<number, any>();
+  for (const item of ensureArray<any>((state as any).outline_12, [])) {
+    const n = Number(item?.chapter_number ?? 0) || 0;
+    if (n > 0) outlineTitleByNum.set(n, item);
+  }
+
   const chapters = ensureArray<any>((state as any).chapters, [])
     .slice()
     .sort((a, b) => (Number(a?.chapter_number ?? 0) || 0) - (Number(b?.chapter_number ?? 0) || 0));
 
   for (const ch of chapters) {
     const n = Number(ch?.chapter_number ?? 0) || 0;
-    const chTitle = ensureString(ch?.title, n ? `Capítulo ${n}` : "Capítulo").trim();
+    const planned = outlineTitleByNum.get(n);
+    const chTitle = pickCanonicalChapterTitle(
+      n,
+      planned?.chapter_title,
+      planned?.title,
+      ch?.title,
+      ch?.chapter_title
+    );
     const t = stripLeadingChapterHeading(ensureString(ch?.text, ""), n, chTitle).trim();
     if (!t) continue;
     parts.push(`## ${chTitle}\n\n${t}`);
@@ -788,7 +834,16 @@ export function mergeProjectState(prev: ProjectState | undefined, next: ProjectS
     const nextText = ensureString(c?.text, "");
 
     const mergedC: AnyRecord = { ...(existing || {}), ...(c || {}), chapter_number: cn };
-    mergedC.title = ensureString(mergedC.title, ensureString(mergedC.chapter_title, `Capítulo ${cn}`)).trim();
+    const plannedOutline = outlineByNum.get(cn);
+    mergedC.title = pickCanonicalChapterTitle(
+      cn,
+      plannedOutline?.chapter_title,
+      plannedOutline?.title,
+      existing?.title,
+      existing?.chapter_title,
+      c?.title,
+      c?.chapter_title
+    );
     mergedC.text = stripLeadingChapterHeading(ensureString(mergedC.text, ""), cn, mergedC.title);
 
     if (existing && shouldPreservePrevText(prevText, nextText)) {
@@ -961,7 +1016,22 @@ export function processEngineResult(result: EngineResult, currentProject: Projec
     }
 
     if (chosen) {
-      const title = ensureString(chosen?.title, `Capítulo ${expected}`);
+      const currentState: any = (currentProject as any)?.state ?? {};
+      const planned = ensureArray<any>(currentState?.outline_12, []).find(
+        (item: any) => Number(item?.chapter_number ?? 0) === expected
+      );
+      const existingChapter = ensureArray<any>(currentState?.chapters, []).find(
+        (item: any) => Number(item?.chapter_number ?? 0) === expected
+      );
+      const title = pickCanonicalChapterTitle(
+        expected,
+        planned?.chapter_title,
+        planned?.title,
+        existingChapter?.title,
+        existingChapter?.chapter_title,
+        chosen?.title,
+        chosen?.chapter_title
+      );
       const text = stripLeadingChapterHeading(ensureString(chosen?.text, ""), expected, title);
       (nextState as any).chapters = [{ ...(chosen as any), chapter_number: expected, title, text }];
     } else {
