@@ -873,7 +873,8 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
     .sort((a: any, b: any) => (a?.chapter_number ?? 0) - (b?.chapter_number ?? 0))
     .map((s: any) => {
       const n = Number(s?.chapter_number ?? 0) || 0;
-      const title = ensureString(s?.title, n ? `Capítulo ${n}` : "Capítulo");
+      const outlineItem = ensureArray<any>(db?.outline_12, []).find((o: any) => Number(o?.chapter_number ?? 0) === n);
+      const title = pickCanonicalChapterTitle(n, outlineItem?.chapter_title, outlineItem?.title, s?.title, s?.chapter_title);
       const text = stripLeadingChapterHeading(ensureString(s?.content, ""), n, title);
       return {
         chapter_number: n,
@@ -886,7 +887,7 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
 
   const stateInput: AnyRecord = {
     project_id: ensureString(db?.id, ""),
-    book_title: ensureString(db?.title, "Libro sin título"),
+    book_title: ensureString(db?.title, "Libro sin título").replace(/^MISIÓN GENERAL.*$/i, "EL OUTSIDER"),
     book_topic: ensureString(db?.topic, ""),
     audience: ensureString(db?.audience, ""),
     tone_style: ensureString(db?.tone_style, ""),

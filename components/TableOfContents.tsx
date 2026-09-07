@@ -61,8 +61,9 @@ function buildFallbackMenuItemsFromState(project: Project): Array<{ id: string; 
   const chaptersItems = (outline.length ? outline : chapters).map((o: any, idx: number) => {
     const n = Number(o?.chapter_number ?? (idx + 1)) || (idx + 1);
     const title = String(o?.chapter_title ?? o?.title ?? `Capítulo ${n}`).trim();
+    const cleanTitle = /^(?:cap[ií]tulo|chapter|parte)\s*\d+\s*$/i.test(title) ? `Capítulo ${n}` : title;
     // Mantén label legible sin duplicar "Capítulo"
-    const label = title.toLowerCase().startsWith('capítulo') ? title : `Capítulo ${n}: ${title}`;
+    const label = cleanTitle.toLowerCase().startsWith('capítulo') ? cleanTitle : `Capítulo ${n}: ${cleanTitle}`;
     return { id: `chap-${n}`, label };
   });
 
@@ -246,3 +247,4 @@ const TableOfContents: React.FC<SidebarProps> = ({
 };
 
 export default TableOfContents;
+
