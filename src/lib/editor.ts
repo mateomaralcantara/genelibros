@@ -639,34 +639,16 @@ function enforceCanonicalBookTitle(currentProject: any, mergedState: any, dashbo
 // GENELIBROS_V14_4_CANONICAL_CHAPTER_TITLES
 // El título planificado del outline es la fuente canónica. Un resultado parcial
 // del modelo nunca debe convertir "Capítulo 4: Título real" en solo "Capítulo 4".
-function pickCanonicalChapterTitle(chapterNumber: number, ...candidates: unknown[]): string {
-  const n = Number(chapterNumber || 0) || 0;
-  const fallback = n > 0 ? `Capítulo ${n}` : "Capítulo";
-  let firstNonEmpty = "";
-
+export function pickCanonicalChapterTitle(chapterNumber: number, ...candidates: unknown[]): string {
+  const n = Number(chapterNumber) || 0;
   for (const candidate of candidates) {
-    const raw = String(candidate ?? "").trim();
-    if (!raw) continue;
-
-    const stripped = n > 0
-      ? raw.replace(new RegExp(String.raw`^\\s*cap[ií]tulo\\s*${n}\\s*[:\\-–—.]\\s*`, "i"), "").trim()
-      : raw;
-    const value = stripped || raw;
-
-    if (!firstNonEmpty) firstNonEmpty = value;
-
-    const normalized = value.toLowerCase().replace(/\\s+/g, " ").trim();
-    const generic = n > 0 && (
-      normalized === `capítulo ${n}` ||
-      normalized === `capitulo ${n}` ||
-      normalized === `chapter ${n}` ||
-      normalized === `parte ${n}`
-    );
-
-    if (!generic) return value;
+    if (typeof candidate !== "string") continue;
+    const raw = candidate.trim().replace(/^#{1,6}\s*/, "");
+    if (!raw || /^(?:cap[ií]tulo|chapter|parte)\s*\d*\s*[:.\-–—]?$/i.test(raw)) continue;
+    const title = raw.replace(new RegExp(String.raw`^(?:cap[ií]tulo|chapter)\s*${n}\s*[:.\-–—]\s*`, "i"), "").trim();
+    if (title) return title;
   }
-
-  return firstNonEmpty || fallback;
+  return n > 0 ? `Capítulo ${n}` : "Capítulo";
 }
 
 export function buildMasterFromState(state: ProjectState, title?: string): string {
@@ -702,7 +684,7 @@ export function buildMasterFromState(state: ProjectState, title?: string): strin
     );
     const t = stripLeadingChapterHeading(ensureString(ch?.text, ""), n, chTitle).trim();
     if (!t) continue;
-    parts.push(`## ${chTitle}\n\n${t}`);
+    parts.push(`## ${n ? `Capítulo ${n}: ` : ""}${chTitle}\n\n${t}`);
   }
 
   return parts.join("\n\n---\n\n").trim() + "\n";
@@ -732,7 +714,7 @@ export function normalizeProjectState(input: unknown): ProjectState {
     const normalized: AnyRecord = isRecord(o) ? { ...(o as AnyRecord) } : {};
     normalized.id = ensureString(normalized.id, `outline_${String(chapterNum).padStart(2, "0")}`);
     normalized.chapter_number = chapterNum;
-    normalized.chapter_title = ensureString(normalized.chapter_title, ensureString(normalized.title, `Capítulo ${chapterNum}`));
+    normalized.chapter_title = pickCanonicalChapterTitle(chapterNum, normalized.chapter_title, normalized.chapterTitle, normalized.title);
     normalized.status = normalized.status === "COMPLETED" || normalized.status === "DRAFTED" ? normalized.status : "PENDING";
     normalized.target_words = typeof normalized.target_words === "number" ? normalized.target_words : 0;
     normalized.objective = ensureString(normalized.objective, "");
@@ -746,7 +728,8 @@ export function normalizeProjectState(input: unknown): ProjectState {
     const normalized: AnyRecord = isRecord(c) ? { ...(c as AnyRecord) } : {};
     normalized.chapter_number = cn;
     normalized.id = ensureString(normalized.id, `sec_chapter_${String(cn).padStart(2, "0")}`);
-    normalized.title = ensureString(normalized.title, ensureString(normalized.chapter_title, `Capítulo ${cn}`)).trim();
+    const planned = (state as any).outline_12.find((o: any) => o.chapter_number === cn);
+    normalized.title = pickCanonicalChapterTitle(cn, planned?.chapter_title, planned?.title, normalized.title, normalized.chapter_title);
     normalized.text = stripLeadingChapterHeading(ensureString(normalized.text, ""), cn, normalized.title);
     normalized.status = normalized.status === "COMPLETED" ? "COMPLETED" : "PENDING";
     normalized.words = typeof normalized.words === "number" ? normalized.words : 0;
@@ -789,6 +772,12 @@ export function mergeProjectState(prev: ProjectState | undefined, next: ProjectS
   if (!prev) return next;
 
   const merged: AnyRecord = { ...(prev as any), ...(next as any) };
+  // The author's original brief is input, not a field for the model to rewrite.
+  merged.book_topic = ensureString((prev as any).book_topic, "").trim() || ensureString((next as any).book_topic, "");
+  merged.bookTopic = merged.book_topic;
+  for (const key of ["audience", "tone_style"]) {
+    if (!ensureString(merged[key], "").trim()) merged[key] = (prev as any)[key] || "";
+  }
 
   merged.proposal = { ...(prev as any).proposal, ...(next as any).proposal };
   if (!ensureString(merged.proposal?.text, "").trim() && ensureString((prev as any).proposal?.text, "").trim()) {
@@ -809,7 +798,10 @@ export function mergeProjectState(prev: ProjectState | undefined, next: ProjectS
   for (const o of nextOutline) {
     const n = Number(o?.chapter_number ?? 0) || 0;
     if (!n) continue;
-    outlineByNum.set(n, { ...(outlineByNum.get(n) || {}), ...o, chapter_number: n });
+    const previous = outlineByNum.get(n) || {};
+    outlineByNum.set(n, { ...previous, ...o, chapter_number: n,
+      chapter_title: pickCanonicalChapterTitle(n, o?.chapter_title, o?.title, previous.chapter_title, previous.title),
+    });
   }
 
   merged.outline_12 = Array.from(outlineByNum.values())
@@ -1008,11 +1000,8 @@ export function processEngineResult(result: EngineResult, currentProject: Projec
     const pickWords = (x: any) => countWordsQuick(ensureString(x?.text, ""));
 
     let chosen = chs.find((c: any) => Number(c?.chapter_number ?? 0) === expected);
-    if (!chosen) {
-      chosen = chs
-        .filter((c: any) => ensureString(c?.text, "").trim())
-        .slice()
-        .sort((a: any, b: any) => pickWords(b) - pickWords(a))[0];
+    if (!chosen || !ensureString(chosen?.text, "").trim()) {
+      throw new Error(`El motor no devolvió contenido para el capítulo ${expected}. No se ha reemplazado ningún capítulo.`);
     }
 
     if (chosen) {

@@ -12,6 +12,7 @@ import type { ComposerTask } from "./types.local";
 import type { Project } from "../../types";
 
 import {
+  pickCanonicalChapterTitle,
   safeJsonParse,
   validateEngineResult,
   ensureString,
@@ -171,14 +172,12 @@ function getChapterTitle(state: any, n: number): string {
   const outline = ensureArray<any>(state?.outline_12, []);
   const item = outline.find((x: any) => Number(x?.chapter_number ?? 0) === n);
   const fromOutline = ensureString(item?.chapter_title, ensureString(item?.title, ""));
-  if (fromOutline.trim()) return fromOutline.trim();
+
 
   const chapters = ensureArray<any>(state?.chapters, []);
   const ch = chapters.find((x: any) => Number(x?.chapter_number ?? 0) === n);
   const fromChapter = ensureString(ch?.title, "");
-  if (fromChapter.trim()) return fromChapter.trim();
-
-  return `Capítulo ${n}`;
+  return pickCanonicalChapterTitle(n, fromOutline, item?.title, fromChapter, ch?.chapter_title);
 }
 
 function getOutlineHints(state: any, n: number) {
@@ -776,3 +775,4 @@ export async function autoExtendChapterDev(params: {
   // Ya se auto-extiende dentro del flujo principal (callLongSectionPlainDev).
   return params.project;
 }
+

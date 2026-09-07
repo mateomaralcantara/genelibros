@@ -1,3 +1,4 @@
+import { pickCanonicalChapterTitle } from "../src/lib/editor";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dashboardStyles, type DashboardVariant } from "./dashboardStyles";
 import type { Project } from "../types";
@@ -364,14 +365,6 @@ const GenerationDashboard = function GenerationDashboard({
   const effectiveOutline: any[] = useMemo(() => {
     const byNum = new Map<number, any>();
 
-    const normalizeTitle = (value: unknown, n: number) => {
-      const rawTitle = String(value ?? "").trim();
-      return (
-        rawTitle
-          .replace(new RegExp(String.raw`^\s*cap[ií]tulo\s*${n}\s*[:\-–—]\s*`, "i"), "")
-          .trim() || rawTitle || `Capítulo ${n}`
-      );
-    };
 
     for (const item of outline12) {
       const n = Number(item?.chapter_number ?? 0) || 0;
@@ -379,7 +372,7 @@ const GenerationDashboard = function GenerationDashboard({
       byNum.set(n, {
         ...item,
         chapter_number: n,
-        chapter_title: normalizeTitle(item?.chapter_title ?? item?.title, n),
+        chapter_title: pickCanonicalChapterTitle(n, item?.chapter_title, item?.title),
       });
     }
 
@@ -393,10 +386,7 @@ const GenerationDashboard = function GenerationDashboard({
         ...existing,
         id: existing?.id || ch?.id || `outline_${String(n).padStart(2, "0")}`,
         chapter_number: n,
-        chapter_title: normalizeTitle(
-          existing?.chapter_title ?? existing?.title ?? ch?.title ?? ch?.chapter_title,
-          n
-        ),
+        chapter_title: pickCanonicalChapterTitle(n, existing?.chapter_title, existing?.title, ch?.title, ch?.chapter_title),
         target_words: Number(existing?.target_words ?? ch?.target_words ?? 0) || 0,
         status: existing?.status ?? ch?.status ?? "PENDING",
       });
@@ -860,3 +850,4 @@ const GenerationDashboard = function GenerationDashboard({
 };
 
 export default GenerationDashboard;
+

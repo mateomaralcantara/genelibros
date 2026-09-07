@@ -1,3 +1,4 @@
+import { pickCanonicalChapterTitle } from "../src/lib/editor";
 
 /**
  * ELITE_STRUCTURED_LOGGING_10
@@ -448,7 +449,7 @@ function getChapterTitleFromState(state: any, chapterNumber: number): string {
     ''
   );
 
-  if (outlineTitle) return outlineTitle;
+
 
   const chapters = ensureArrayValue<any>(state?.chapters);
 
@@ -459,10 +460,10 @@ function getChapterTitleFromState(state: any, chapterNumber: number): string {
 
   const existingTitle = ensureText(chapter?.title, '');
 
-  return existingTitle || `Capítulo ${chapterNumber}`;
+  return pickCanonicalChapterTitle(chapterNumber, outlineTitle, outlineItem?.title, existingTitle, chapter?.chapter_title);
 }
 
-function buildProductionPlainPrompt(task: any, state: any): string {
+export function buildProductionPlainPrompt(task: any, state: any): string {
   const action = getAction(task);
   const title = getBookTitleFromState(state);
   const topic = getBookTopicFromState(state);
@@ -560,6 +561,13 @@ function buildProductionPlainPrompt(task: any, state: any): string {
     `Título del capítulo: ${chapterTitle}`,
     `Objetivo mínimo: ${Math.max(2000, targetWords)} palabras`,
     objective ? `Objetivo editorial: ${objective}` : '',
+    `Plan del capítulo (respeta tesis, apartados y requisitos): ${JSON.stringify(outlineItem || {})}`,
+    `Audiencia: ${ensureText(state?.audience, '')}`,
+    `Tono: ${ensureText(state?.tone_style, '')}`,
+    `Continuidad: ${JSON.stringify(state?.continuity_pack || {})}`,
+    `Investigación aportada: ${JSON.stringify(state?.research_context || state?.researchContext || state?.research_pack || state?.researchPack || state?.verified_facts || {})}`,
+    'Respeta el encargo original del tema general. Los datos requeridos son preguntas de investigación, no hechos verificados. No presentes como consultadas fuentes que no fueron aportadas.',
+
     keyPoints.length
       ? `Puntos clave: ${keyPoints.join('; ')}`
       : '',
@@ -786,6 +794,9 @@ export default async function handler(req: any, res: any) {
       '',
       'IMPORTANTE:',
       '- Devuelve solamente el expediente y el esquema.',
+      '- project_state_updated.outline_12 debe contener todos los capítulos solicitados, con chapter_number, chapter_title, objective, chapter_thesis, key_points, subheads_h2, required_facts y source_needs.',
+      '- Sustituye los títulos provisionales por títulos editoriales específicos del encargo. Conserva literalmente los títulos que el autor haya solicitado en book_topic.',
+      '- No devuelvas un esquema parcial ni títulos como Capítulo 1. No resumas ni reemplaces book_topic: es el encargo original del autor.',
       '- No escribas capítulos completos.',
       '- Mantén master_document.text vacío.',
       '- Usa JSON válido y compacto.',
