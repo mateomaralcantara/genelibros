@@ -1,0 +1,313 @@
+from pathlib import Path
+
+path = Path('components/GenerationDashboard.tsx')
+s = path.read_text(encoding='utf-8')
+original = s
+marker = 'GENELIBROS_V14_2_DASHBOARD_QUEUE'
+
+if marker in s:
+    print('V14.2 already installed')
+    raise SystemExit(0)
+
+if 'GENELIBROS_V14_1_DASHBOARD_QUEUE' in s:
+    print('V14.1 already present; no V14.2 patch required')
+    raise SystemExit(0)
+
+def once(old: str, new: str, label: str):
+    global s
+    count = s.count(old)
+    if count != 1:
+        raise RuntimeError(f'{label}: expected 1 occurrence, found {count}')
+    s = s.replace(old, new, 1)
+    print(f'PASS: {label}')
+
+once(
+    'import React, { memo, useCallback, useEffect, useMemo, useState } from "react";',
+    'import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";',
+    'useRef import',
+)
+
+once(
+    '  onGenerate: (action: string, chapterNum?: number) => void;',
+    '  onGenerate: (action: string, chapterNum?: number) => void | boolean | Promise<void | boolean>;',
+    'awaitable onGenerate',
+)
+
+once(
+    '  onGenerateRemaining,\n',
+    '  onGenerateRemaining: _onGenerateRemaining,\n',
+    'legacy queue alias',
+)
+
+old_outline = '''  // ✅ Fallback: si outline_12 viene vacío pero hay capítulos en state,
+  // renderizamos capítulos igualmente (y el blueprint deja de ser 2/2).
+  const effectiveOutline: any[] = useMemo(() => {
+    if (outline12.length) return outline12;
+
+    const byNum = new Map<number, any>();
+    for (const ch of chaptersArr) {
+      const n = Number(ch?.chapter_number ?? 0) || 0;
+      if (!n) continue;
+
+      const rawTitle = String(ch?.title ?? "").trim();
+      const cleanTitle = rawTitle
+        .replace(new RegExp(String.raw`^\\s*cap[ií]tulo\\s*${n}\\s*[:\\-–—]\\s*`, "i"), "")
+        .trim() || rawTitle || `Capítulo ${n}`;
+
+      byNum.set(n, {
+        id: `outline_${String(n).padStart(2, "0")}`,
+        chapter_number: n,
+        chapter_title: cleanTitle,
+        target_words: 0,
+        status: "PENDING",
+      });
+    }
+
+    return Array.from(byNum.values()).sort((a, b) => (a.chapter_number ?? 0) - (b.chapter_number ?? 0));
+  }, [outline12, chaptersArr]);'''
+
+new_outline = '''  // GENELIBROS_V14_2_DASHBOARD_QUEUE
+  // La cola y la UI usan la unión de todas las fuentes conocidas de capítulos.
+  // Así un outline_12 incompleto (por ejemplo, 1 solo item) no reduce el libro a 1 capítulo.
+  const effectiveOutline: any[] = useMemo(() => {
+    const byNum = new Map<number, any>();
+
+    const normalizeTitle = (value: unknown, n: number) => {
+      const rawTitle = String(value ?? "").trim();
+      return (
+        rawTitle
+          .replace(new RegExp(String.raw`^\\s*cap[ií]tulo\\s*${n}\\s*[:\\-–—]\\s*`, "i"), "")
+          .trim() || rawTitle || `Capítulo ${n}`
+      );
+    };
+
+    for (const item of outline12) {
+      const n = Number(item?.chapter_number ?? 0) || 0;
+      if (!n) continue;
+      byNum.set(n, {
+        ...item,
+        chapter_number: n,
+        chapter_title: normalizeTitle(item?.chapter_title ?? item?.title, n),
+      });
+    }
+
+    for (const ch of chaptersArr) {
+      const n = Number(ch?.chapter_number ?? 0) || 0;
+      if (!n) continue;
+
+      const existing = byNum.get(n) ?? {};
+      byNum.set(n, {
+        ...ch,
+        ...existing,
+        id: existing?.id || ch?.id || `outline_${String(n).padStart(2, "0")}`,
+        chapter_number: n,
+        chapter_title: normalizeTitle(
+          existing?.chapter_title ?? existing?.title ?? ch?.title ?? ch?.chapter_title,
+          n
+        ),
+        target_words: Number(existing?.target_words ?? ch?.target_words ?? 0) || 0,
+        status: existing?.status ?? ch?.status ?? "PENDING",
+      });
+    }
+
+    for (const key of Object.keys(gp)) {
+      const match = /^chap-(\\d+)$/.exec(key);
+      const n = Number(match?.[1] ?? 0) || 0;
+      if (!n || byNum.has(n)) continue;
+      byNum.set(n, {
+        id: `outline_${String(n).padStart(2, "0")}`,
+        chapter_number: n,
+        chapter_title: `Capítulo ${n}`,
+        target_words: 0,
+        status: "PENDING",
+      });
+    }
+
+    const chapterCountHint = Number(
+      state?.continuity_pack?.chapter_count ??
+        (project as any)?.continuity_pack?.chapter_count ??
+        0
+    ) || 0;
+
+    for (let n = 1; n <= chapterCountHint; n += 1) {
+      if (byNum.has(n)) continue;
+      byNum.set(n, {
+        id: `outline_${String(n).padStart(2, "0")}`,
+        chapter_number: n,
+        chapter_title: `Capítulo ${n}`,
+        target_words: 0,
+        status: "PENDING",
+      });
+    }
+
+    return Array.from(byNum.values()).sort(
+      (a, b) => Number(a?.chapter_number ?? 0) - Number(b?.chapter_number ?? 0)
+    );
+  }, [outline12, chaptersArr, gp, state?.continuity_pack, project]);'''
+
+once(old_outline, new_outline, 'chapter union')
+
+once(
+    '''  const selectedStatus: Status = (gp?.[selectedKey] || "pending") as Status;
+
+  const canGenerateSelected = useMemo(() => {
+    if (isGeneratingGlobal) return false;
+    if (selectedStatus === "generating") return false;
+    return true;
+  }, [isGeneratingGlobal, selectedStatus]);''',
+    '''  const selectedStatus: Status = (gp?.[selectedKey] || "pending") as Status;
+
+  const autoQueueRef = useRef(false);
+  const [autoGeneratingAll, setAutoGeneratingAll] = useState(false);
+
+  const canGenerateSelected = useMemo(() => {
+    if (isGeneratingGlobal || autoGeneratingAll) return false;
+    if (selectedStatus === "generating") return false;
+    return true;
+  }, [autoGeneratingAll, isGeneratingGlobal, selectedStatus]);''',
+    'queue state',
+)
+
+anchor = '  const hasPendingBlueprint = blueprintDone.done < blueprintDone.total;\n'
+if s.count(anchor) != 1:
+    raise RuntimeError(f'queue anchor: expected 1, found {s.count(anchor)}')
+
+queue = '''
+
+  const handleAutogenerateAll = useCallback(async () => {
+    if (autoQueueRef.current || isGeneratingGlobal || !hasPendingBlueprint) return;
+
+    autoQueueRef.current = true;
+    setAutoGeneratingAll(true);
+
+    const wasAlreadyCompleted = (key: string) => {
+      if ((gp?.[key] || "pending") === "completed") return true;
+
+      if (key === "proposal") {
+        return String(state?.proposal?.status || "").toUpperCase() === "COMPLETED";
+      }
+
+      if (key === "intro") {
+        return String(state?.introduction?.status || "").toUpperCase() === "COMPLETED";
+      }
+
+      const match = /^chap-(\\d+)$/.exec(key);
+      const n = Number(match?.[1] ?? 0) || 0;
+      if (!n) return false;
+
+      const chapter = chaptersArr.find(
+        (item: any) => Number(item?.chapter_number ?? 0) === n
+      );
+
+      return (
+        String(chapter?.status || "").toUpperCase() === "COMPLETED" &&
+        String(chapter?.text || "").trim().length > 0
+      );
+    };
+
+    try {
+      const queue = [...blueprintKeys];
+
+      console.log("[V14.2] FULL BOOK DASHBOARD QUEUE START", {
+        projectId: (project as any)?.id,
+        total: queue.length,
+        chapters: effectiveOutline.length,
+      });
+
+      for (const key of queue) {
+        if (wasAlreadyCompleted(key)) continue;
+
+        let result: void | boolean;
+
+        if (key === "proposal") {
+          result = await Promise.resolve(onGenerate("GENERATE_PROPOSAL"));
+        } else if (key === "intro") {
+          result = await Promise.resolve(onGenerate("GENERATE_INTRODUCTION"));
+        } else {
+          const n = Number(key.replace("chap-", ""));
+          if (!Number.isFinite(n) || n <= 0) continue;
+          result = await Promise.resolve(onGenerate("GENERATE_CHAPTER", n));
+        }
+
+        if (result === false) {
+          console.warn(`[V14.2] ${key} falló; la cola continúa con la siguiente sección.`);
+        }
+
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
+      }
+
+      console.log("[V14.2] FULL BOOK DASHBOARD QUEUE END");
+    } finally {
+      autoQueueRef.current = false;
+      setAutoGeneratingAll(false);
+    }
+  }, [
+    blueprintKeys,
+    chaptersArr,
+    effectiveOutline.length,
+    gp,
+    hasPendingBlueprint,
+    isGeneratingGlobal,
+    onGenerate,
+    project,
+    state?.introduction?.status,
+    state?.proposal?.status,
+  ]);
+
+  // Prop legado conservado por compatibilidad con App.tsx.
+  // V14.2 usa la cola local porque la implementación anterior podía detenerse tras un capítulo.
+  void _onGenerateRemaining;
+'''
+
+s = s.replace(anchor, anchor + queue, 1)
+print('PASS: local sequential queue')
+
+once(
+    '''              <button
+                type="button"
+                onClick={onGenerateRemaining}
+                disabled={isGeneratingGlobal || !hasPendingBlueprint}
+                className={btnPrimary}
+                title="Autogenera lo pendiente (propuesta, intro y capítulos)"
+              >
+                <RocketIcon className="w-5 h-5" />
+                Autogenerar todo
+              </button>''',
+    '''              <button
+                type="button"
+                onClick={() => void handleAutogenerateAll()}
+                disabled={autoGeneratingAll || isGeneratingGlobal || !hasPendingBlueprint}
+                className={btnPrimary}
+                title="Autogenera lo pendiente (propuesta, intro y todos los capítulos)"
+              >
+                <RocketIcon className="w-5 h-5" />
+                {autoGeneratingAll ? "Generando libro…" : "Autogenerar todo"}
+              </button>''',
+    'autogenerate button',
+)
+
+disabled_old = '                disabled={isGeneratingGlobal}\n'
+disabled_new = '                disabled={isGeneratingGlobal || autoGeneratingAll}\n'
+count = s.count(disabled_old)
+if count != 3:
+    raise RuntimeError(f'individual locks: expected 3, found {count}')
+s = s.replace(disabled_old, disabled_new)
+print('PASS: individual locks')
+
+required = [
+    marker,
+    'handleAutogenerateAll',
+    'FULL BOOK DASHBOARD QUEUE START',
+    'Object.keys(gp)',
+    'continuity_pack?.chapter_count',
+    'onClick={() => void handleAutogenerateAll()}',
+]
+for token in required:
+    if token not in s:
+        raise RuntimeError(f'missing contract token: {token}')
+
+if s == original:
+    raise RuntimeError('no source change')
+
+path.write_text(s, encoding='utf-8')
+print('GENELIBROS_V14_2_SOURCE_PATCH_PASS')
