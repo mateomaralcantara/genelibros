@@ -992,6 +992,9 @@ const App: React.FC = () => {
 
   // single-flight generation
   const globalGenLockRef = useRef(false);
+  // GENELIBROS_V14_3_FULL_BOOK_AUTOSTART
+  // Proyecto recién creado que debe disparar la generación completa una sola vez.
+  const fullBookAutostartRef = useRef<string | null>(null);
   const requestSeqRef = useRef<Record<string, number>>({});
 
   const activeProject = useMemo(
@@ -1762,6 +1765,7 @@ const App: React.FC = () => {
       ];
       setProjects(projectsRef.current);
       setActiveProjectId(updatedWithMaster.id);
+      fullBookAutostartRef.current = updatedWithMaster.id;
       setViewMode("plan");
 
       const now = Date.now();
@@ -1902,8 +1906,62 @@ const targetWords =
     setIsLoading(true);
     setError(null);
 
+    const getFresh = () => projectsRef.current.find((p) => p.id === activeProjectId);
+
+    const getChapterNumbers = (project: Project): number[] => {
+      const numbers = new Set<number>();
+      const state: any = (project as any)?.state ?? {};
+
+      for (const item of ensureArray<any>(state?.outline_12, [])) {
+        const n = Number(item?.chapter_number ?? 0) || 0;
+        if (n > 0) numbers.add(n);
+      }
+
+      for (const chapter of ensureArray<any>(state?.chapters, [])) {
+        const n = Number(chapter?.chapter_number ?? 0) || 0;
+        if (n > 0) numbers.add(n);
+      }
+
+      const progress = (((project as any)?.generation_progress ?? state?.generation_progress ?? {}) as AnyRecord) || {};
+      for (const key of Object.keys(progress)) {
+        const match = /^chap-(\d+)$/.exec(key);
+        const n = Number(match?.[1] ?? 0) || 0;
+        if (n > 0) numbers.add(n);
+      }
+
+      const chapterCountHint = Number(
+        state?.continuity_pack?.chapter_count ??
+        (project as any)?.continuity_pack?.chapter_count ??
+        0
+      ) || 0;
+
+      for (let n = 1; n <= chapterCountHint; n += 1) {
+        numbers.add(n);
+      }
+
+      return Array.from(numbers).sort((a, b) => a - b);
+    };
+
+    const isChapterCompleted = (project: Project, chapterNumber: number): boolean => {
+      const state: any = (project as any)?.state ?? {};
+      const key = `chap-${chapterNumber}`;
+      const progress = (((project as any)?.generation_progress ?? state?.generation_progress ?? {}) as AnyRecord) || {};
+
+      if (String(progress?.[key] ?? "").toLowerCase() === "completed") {
+        return true;
+      }
+
+      const chapter = ensureArray<any>(state?.chapters, []).find(
+        (item: any) => Number(item?.chapter_number ?? 0) === chapterNumber
+      );
+
+      return (
+        ensureString(chapter?.status, "").toUpperCase() === "COMPLETED" &&
+        ensureString(chapter?.text, "").trim().length > 0
+      );
+    };
+
     try {
-      const getFresh = () => projectsRef.current.find((p) => p.id === activeProjectId);
       let current = getFresh();
       if (!current) return;
 
@@ -1923,22 +1981,54 @@ const targetWords =
       current = getFresh();
       if (!current) return;
 
-      for (const item of ensureArray<any>((current.state as any)?.outline_12, [])) {
-        const key = `chap-${item.chapter_number}`;
-        const status = (((current as any).generation_progress || {})[key] as GenerationStatus | undefined);
-        if (status === "completed") continue;
+      const chapterNumbers = getChapterNumbers(current);
 
-        const ok = await generateSectionCore("GENERATE_CHAPTER", item.chapter_number, { bypassLock: true });
-        if (!ok) break;
+      console.log("[V14.3] FULL BOOK APP QUEUE START", {
+        projectId: current.id,
+        chapters: chapterNumbers,
+      });
 
+      for (const chapterNumber of chapterNumbers) {
         current = getFresh();
         if (!current) break;
+
+        if (isChapterCompleted(current, chapterNumber)) continue;
+
+        const ok = await generateSectionCore(
+          "GENERATE_CHAPTER",
+          chapterNumber,
+          { bypassLock: true }
+        );
+
+        if (!ok) {
+          console.warn(
+            `[V14.3] Capítulo ${chapterNumber} falló; la cola continúa con el siguiente.`
+          );
+          continue;
+        }
       }
+
+      console.log("[V14.3] FULL BOOK APP QUEUE END");
     } finally {
       setIsLoading(false);
       globalGenLockRef.current = false;
     }
   }, [activeProjectId, anyGenerating, generateSectionCore]);
+
+  useEffect(() => {
+    const pendingProjectId = fullBookAutostartRef.current;
+
+    if (!pendingProjectId || pendingProjectId !== activeProjectId) return;
+
+    // Consumir el marker antes de arrancar evita duplicados por rerender.
+    fullBookAutostartRef.current = null;
+
+    const timer = window.setTimeout(() => {
+      void handleGenerateRemaining();
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [activeProjectId, handleGenerateRemaining]);
 
   const handleEditSection = useCallback(async (payload: any) => {
     const proj = projectsRef.current.find((p) => p.id === activeProjectId);
