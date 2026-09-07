@@ -1,0 +1,59 @@
+name: Fix legacy brief recovery V14.5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/fix-legacy-brief-recovery-v14-5.py
+      - scripts/legacy-brief-recovery-v14-5-tests.mjs
+      - .github/workflows/fix-legacy-brief-recovery-v14-5.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair-legacy-brief:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Patch legacy projects and dashboard titles
+        run: python3 scripts/fix-legacy-brief-recovery-v14-5.py
+
+      - name: Regression test V14.5
+        run: node scripts/legacy-brief-recovery-v14-5-tests.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Diff check
+        run: git diff --check -- src/lib/editor.ts components/GenerationDashboard.tsx
+
+      - name: Commit verified V14.5 source repair
+        shell: bash
+        run: |
+          if git diff --quiet -- src/lib/editor.ts components/GenerationDashboard.tsx; then
+            echo "No source change to commit."
+            exit 0
+          fi
+          git config user.name "GeneLibros Repair Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/editor.ts components/GenerationDashboard.tsx
+          git commit -m "fix: recover legacy book and chapter titles from original brief"
+          git push origin HEAD:main
