@@ -965,6 +965,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"plan" | "book" | "os4">("plan");
   const [error, setError] = useState<string | null>(null);
+  const [autostartSignal, setAutostartSignal] = useState(0);
 
   // auth
   const [session, setSession] = useState<any>(null);
@@ -1269,6 +1270,10 @@ const App: React.FC = () => {
         chunks: repairedMaster ? [{ index: 1, total: 1, text: repairedMaster }] : [],
       };
       delete (full as any).__legacyRepair;
+      // La primera carga de la demo reparada continúa automáticamente con la
+      // propuesta, introducción y los 12 capítulos pendientes.
+      fullBookAutostartRef.current = projectId;
+      setAutostartSignal((value) => value + 1);
     }
 
     setProjects((prev) => {
@@ -2113,7 +2118,7 @@ const targetWords =
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [activeProjectId, handleGenerateRemaining]);
+  }, [activeProjectId, autostartSignal, handleGenerateRemaining]);
 
   const handleEditSection = useCallback(async (payload: any) => {
     const proj = projectsRef.current.find((p) => p.id === activeProjectId);
