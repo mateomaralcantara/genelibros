@@ -1,0 +1,62 @@
+name: Fix legacy dossier recovery V14.6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/fix-legacy-dossier-recovery-v14-6.py
+      - scripts/legacy-dossier-recovery-v14-6-tests.mjs
+      - .github/workflows/fix-legacy-dossier-recovery-v14-6.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair-legacy-dossier:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Patch generic dossier recovery
+        run: python3 scripts/fix-legacy-dossier-recovery-v14-6.py
+
+      - name: Regression test V14.6
+        run: node scripts/legacy-dossier-recovery-v14-6-tests.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Final GeneLibros gate
+        run: npm run genelibros:final:verify
+
+      - name: Diff check
+        run: git diff --check -- src/lib/editor.ts
+
+      - name: Commit verified V14.6 source repair
+        shell: bash
+        run: |
+          if git diff --quiet -- src/lib/editor.ts; then
+            echo "No source change to commit."
+            exit 0
+          fi
+          git config user.name "GeneLibros Repair Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/editor.ts
+          git commit -m "fix: recover legacy titles from dossier when brief is unavailable"
+          git push origin HEAD:main
