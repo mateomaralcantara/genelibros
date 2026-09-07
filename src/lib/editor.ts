@@ -602,20 +602,124 @@ export function compactStateForComposer(project: Project, maxMasterChars: number
 
 
 
-function isBadBookTitle(value: unknown): boolean {
-  const t = String(value ?? "").trim();
+// GENELIBROS_V14_5_LEGACY_BRIEF_RECOVERY
+// Los proyectos creados antes de V14.4 pueden conservar en Supabase títulos
+// genéricos o fragmentos del prompt. Recuperamos únicamente metadatos explícitos
+// del encargo original; nunca inventamos un título nuevo.
+function cleanBriefTitleLine(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^\*\*(.*?)\*\*$/, "$1")
+    .replace(/^__(.*?)__$/, "$1")
+    .replace(/^["“”'‘’]+|["“”'‘’]+$/g, "")
+    .trim();
+}
+
+export function extractBookTitleFromBrief(brief: string): string {
+  const lines = String(brief ?? "").split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const heading = cleanBriefTitleLine(lines[i]);
+    if (!/^t[ií]tulo\s+de\s+trabajo\s*[:\-–—]?$/i.test(heading)) continue;
+
+    for (let j = i + 1; j < Math.min(lines.length, i + 8); j += 1) {
+      const candidate = cleanBriefTitleLine(lines[j]);
+      if (!candidate || candidate === "---") continue;
+      if (/^t[ií]tulos?\s+alternativos?/i.test(candidate)) break;
+      if (/^(?:subt[ií]tulo|misi[oó]n general|objetivo general)\b/i.test(candidate)) continue;
+      return candidate;
+    }
+  }
+
+  for (const line of lines) {
+    const cleaned = cleanBriefTitleLine(line);
+    const m = /^(?:t[ií]tulo|nombre\s+del\s+libro)\s*[:\-–—]\s*(.+)$/i.exec(cleaned);
+    const candidate = cleanBriefTitleLine(m?.[1] ?? "");
+    if (candidate) return candidate;
+  }
+
+  return "";
+}
+
+function isBadChapterTitle(chapterNumber: number, value: unknown): boolean {
+  const n = Number(chapterNumber) || 0;
+  const t = cleanBriefTitleLine(value);
   if (!t) return true;
-  return /^(libro sin t[ií]tulo|documento maestro|documento|untitled)$/i.test(t);
+
+  const compact = t.toLowerCase().replace(/\s+/g, " ").trim();
+  if (n > 0 && (
+    compact === `capítulo ${n}` ||
+    compact === `capitulo ${n}` ||
+    compact === `chapter ${n}` ||
+    compact === `parte ${n}`
+  )) return true;
+
+  if (/^(?:cap[ií]tulo|chapter|parte)\s*\d*\s*[:.\-–—]?$/i.test(t)) return true;
+  if (/\b(?:misi[oó]n general|objetivo general|prompt maestro|act[uú]a como)\b/i.test(t)) return true;
+  if (/\b(?:produzca|produce|escriba|escribe|crea|crear)\s+un\s+libro\b/i.test(t)) return true;
+  if (t.length > 150 && /\b(?:investigaci[oó]n|requisitos?|instrucciones?|formato final)\b/i.test(t)) return true;
+  return false;
+}
+
+export function extractChapterTitlesFromBrief(brief: string): Map<number, string> {
+  const lines = String(brief ?? "").split(/\r?\n/);
+  const titles = new Map<number, string>();
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = cleanBriefTitleLine(lines[i]);
+    if (!raw) continue;
+
+    const inline = /^cap[ií]tulo\s+(\d+)\s*[:.\-–—]\s*(.+)$/i.exec(raw);
+    if (inline) {
+      const n = Number(inline[1]) || 0;
+      const candidate = cleanBriefTitleLine(inline[2]);
+      if (n > 0 && candidate && !isBadChapterTitle(n, candidate) && !titles.has(n)) {
+        titles.set(n, candidate);
+      }
+      continue;
+    }
+
+    const standalone = /^cap[ií]tulo\s+(\d+)\s*[:.\-–—]?$/i.exec(raw);
+    if (!standalone) continue;
+    const n = Number(standalone[1]) || 0;
+    if (!n || titles.has(n)) continue;
+
+    for (let j = i + 1; j < Math.min(lines.length, i + 8); j += 1) {
+      const candidate = cleanBriefTitleLine(lines[j]);
+      if (!candidate || candidate === "---") continue;
+      if (/^(?:parte\s+[ivxlcdm]+|pr[oó]logo|ep[ií]logo)$/i.test(candidate)) continue;
+      if (/^cap[ií]tulo\s+\d+/i.test(candidate)) break;
+      if (!isBadChapterTitle(n, candidate)) titles.set(n, candidate);
+      break;
+    }
+  }
+
+  return titles;
+}
+
+function isBadBookTitle(value: unknown): boolean {
+  const t = cleanBriefTitleLine(value);
+  if (!t) return true;
+  if (/^(libro sin t[ií]tulo|documento maestro|documento|untitled)$/i.test(t)) return true;
+  if (/^(?:misi[oó]n general|objetivo general|prompt maestro)\b/i.test(t)) return true;
+  if (/\b(?:produzca|produce|escriba|escribe|crea|crear)\s+un\s+libro\b/i.test(t)) return true;
+  if (t.length > 150 && /\b(?:requisitos?|instrucciones?|formato final|investigaci[oó]n)\b/i.test(t)) return true;
+  return false;
 }
 
 function getCanonicalBookTitle(currentProject: any, mergedState: any, dashboard?: any): string {
-  const projectTitle = String(currentProject?.title ?? "").trim();
+  const projectTitle = cleanBriefTitleLine(currentProject?.title);
   if (!isBadBookTitle(projectTitle)) return projectTitle;
 
-  const stateTitle = String(mergedState?.book_title ?? mergedState?.bookTitle ?? "").trim();
+  const brief = ensureString(mergedState?.book_topic, ensureString(mergedState?.bookTopic, ""));
+  const explicitBriefTitle = extractBookTitleFromBrief(brief);
+  if (explicitBriefTitle && !isBadBookTitle(explicitBriefTitle)) return explicitBriefTitle;
+
+  const stateTitle = cleanBriefTitleLine(mergedState?.book_title ?? mergedState?.bookTitle);
   if (!isBadBookTitle(stateTitle)) return stateTitle;
 
-  const dashboardTitle = String(dashboard?.book_title ?? "").trim();
+  const dashboardTitle = cleanBriefTitleLine(dashboard?.book_title);
   if (!isBadBookTitle(dashboardTitle)) return dashboardTitle;
 
   return "Libro sin título";
@@ -643,10 +747,10 @@ export function pickCanonicalChapterTitle(chapterNumber: number, ...candidates: 
   const n = Number(chapterNumber) || 0;
   for (const candidate of candidates) {
     if (typeof candidate !== "string") continue;
-    const raw = candidate.trim().replace(/^#{1,6}\s*/, "");
-    if (!raw || /^(?:cap[ií]tulo|chapter|parte)\s*\d*\s*[:.\-–—]?$/i.test(raw)) continue;
+    const raw = cleanBriefTitleLine(candidate);
+    if (isBadChapterTitle(n, raw)) continue;
     const title = raw.replace(new RegExp(String.raw`^(?:cap[ií]tulo|chapter)\s*${n}\s*[:.\-–—]\s*`, "i"), "").trim();
-    if (title) return title;
+    if (title && !isBadChapterTitle(n, title)) return title;
   }
   return n > 0 ? `Capítulo ${n}` : "Capítulo";
 }
@@ -709,12 +813,30 @@ export function normalizeProjectState(input: unknown): ProjectState {
   introduction.words = typeof introduction.words === "number" ? introduction.words : 0;
   (state as any).introduction = introduction;
 
+  // Legacy recovery must run before outline normalization so an old saved
+  // "Capítulo N" can be replaced by an explicit title from the original brief.
+  (state as any).book_topic = ensureString((state as any).book_topic, ensureString((state as any).bookTopic, ""));
+  (state as any).bookTopic = (state as any).book_topic;
+  const briefChapterTitles = extractChapterTitlesFromBrief((state as any).book_topic);
+  const explicitBriefBookTitle = extractBookTitleFromBrief((state as any).book_topic);
+  const existingStateBookTitle = ensureString((state as any).book_title, ensureString((state as any).bookTitle, ""));
+  if (explicitBriefBookTitle && isBadBookTitle(existingStateBookTitle)) {
+    (state as any).book_title = explicitBriefBookTitle;
+    (state as any).bookTitle = explicitBriefBookTitle;
+  }
+
   (state as any).outline_12 = ensureArray<any>((state as any).outline_12, []).map((o: any, idx: number) => {
     const chapterNum = Number(o?.chapter_number ?? o?.chapterNumber ?? (idx + 1)) || idx + 1;
     const normalized: AnyRecord = isRecord(o) ? { ...(o as AnyRecord) } : {};
     normalized.id = ensureString(normalized.id, `outline_${String(chapterNum).padStart(2, "0")}`);
     normalized.chapter_number = chapterNum;
-    normalized.chapter_title = pickCanonicalChapterTitle(chapterNum, normalized.chapter_title, normalized.chapterTitle, normalized.title);
+    normalized.chapter_title = pickCanonicalChapterTitle(
+      chapterNum,
+      normalized.chapter_title,
+      normalized.chapterTitle,
+      normalized.title,
+      briefChapterTitles.get(chapterNum)
+    );
     normalized.status = normalized.status === "COMPLETED" || normalized.status === "DRAFTED" ? normalized.status : "PENDING";
     normalized.target_words = typeof normalized.target_words === "number" ? normalized.target_words : 0;
     normalized.objective = ensureString(normalized.objective, "");
@@ -914,16 +1036,19 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
   };
 
   const state = normalizeProjectState(stateInput);
-  const masterText =
-    ensureString(masterLatest?.content, "").trim() || buildMasterFromState(state, ensureString(db?.title, "")).trim();
+  const canonicalTitle = getCanonicalBookTitle({ title: ensureString(db?.title, "") }, state, db?.dossier ?? {});
+  (state as any).book_title = canonicalTitle;
+  (state as any).bookTitle = canonicalTitle;
+  const rebuiltMasterText = buildMasterFromState(state, canonicalTitle).trim();
+  const masterText = rebuiltMasterText || ensureString(masterLatest?.content, "").trim();
 
   const p: Project = {
     id: ensureString(db?.id, ""),
-    title: ensureString(db?.title, "Libro sin título"),
+    title: canonicalTitle,
     state,
     dashboard: db?.dossier ?? null,
     master_document: {
-      title: ensureString(masterLatest?.title, ensureString(db?.title, "Documento maestro")),
+      title: canonicalTitle,
       text: masterText,
       chunks: masterText ? [{ index: 1, total: 1, text: masterText }] : [],
     } as any,

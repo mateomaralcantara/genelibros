@@ -225,7 +225,8 @@ const ChapterRow = memo(function ChapterRow({
         <div className="min-w-0">
           <div className="flex items-center gap-3">
             <span className={cx("w-2.5 h-2.5 rounded-full", a.dot)} />
-            <p className="font-black text-slate-100 truncate">
+            {/* GENELIBROS_V14_5_FULL_TITLE_WRAP: nunca ocultar el título editorial con ellipsis. */}
+            <p className="font-black text-slate-100 leading-snug break-words whitespace-normal">
               Capítulo {chapterNumber}: <span className="text-slate-200/90">{title}</span>
             </p>
           </div>
