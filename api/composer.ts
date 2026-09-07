@@ -728,8 +728,8 @@ export default async function handler(req: any, res: any) {
 
     if (!task || !state) return res.status(400).json({ error: 'Missing task/state' });
 
-    const requestedModel = String(body?.model || 'gemini-2.5-flash');
-    const model = ALLOWED_MODELS.has(requestedModel) ? requestedModel : 'gemini-2.5-flash';
+    const requestedModel = String(body?.model || 'gemini-3.1-flash-lite');
+    const model = ALLOWED_MODELS.has(requestedModel) ? requestedModel : 'gemini-3.1-flash-lite';
 
     const ai = new GoogleGenAI({ apiKey });
 
