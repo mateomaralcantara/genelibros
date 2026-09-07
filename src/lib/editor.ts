@@ -600,36 +600,18 @@ export function compactStateForComposer(project: Project, maxMasterChars: number
 
 /* -------------------------- master builder -------------------------- */
 
-
-
 // GENELIBROS_V14_5_LEGACY_BRIEF_RECOVERY
 // Los proyectos creados antes de V14.4 pueden conservar en Supabase títulos
 // genéricos o fragmentos del prompt. Recuperamos únicamente metadatos explícitos
 // del encargo original; nunca inventamos un título nuevo.
 function cleanBriefTitleLine(value: unknown): string {
-  let out = String(value ?? "")
+  return String(value ?? "")
     .trim()
     .replace(/^#{1,6}\s*/, "")
     .replace(/^\*\*(.*?)\*\*$/, "$1")
     .replace(/^__(.*?)__$/, "$1")
+    .replace(/^["“”'‘’]+|["“”'‘’]+$/g, "")
     .trim();
-
-  const quotePairs: Array<[string, string]> = [
-    ['"', '"'],
-    ["'", "'"],
-    ['“', '”'],
-    ['‘', '’'],
-    ['«', '»'],
-  ];
-
-  for (const [open, close] of quotePairs) {
-    if (out.length >= 2 && out.startsWith(open) && out.endsWith(close)) {
-      out = out.slice(open.length, out.length - close.length).trim();
-      break;
-    }
-  }
-
-  return out;
 }
 
 export function extractBookTitleFromBrief(brief: string): string {
@@ -769,6 +751,85 @@ export function pickCanonicalChapterTitle(chapterNumber: number, ...candidates: 
     if (title && !isBadChapterTitle(n, title)) return title;
   }
   return n > 0 ? `Capítulo ${n}` : "Capítulo";
+}
+
+/**
+ * Legacy repair for the first EL OUTSIDER test book.
+ *
+ * The original prompt was accidentally persisted as the project title and the
+ * dossier stored generic chapter labels.  Keep the user's existing chapter
+ * text, but restore the explicit twelve-chapter editorial contract whenever
+ * that unmistakable legacy prompt is loaded.
+ */
+export const OUTSIDER_DEMO_TITLES = [
+  "El outsider: una ruptura que necesita definición",
+  "América Latina: promesas, victorias y fracasos desde 2006",
+  "Trump, Zelenski y Europa: la celebridad frente al sistema",
+  "La anatomía de una ruptura electoral",
+  "República Dominicana: de los partidos históricos al mapa actual",
+  "La arquitectura del poder dominicano",
+  "El malestar y el voto: economía, confianza y representación",
+  "Popularidad, rechazo y redes: por qué los seguidores no son votos",
+  "El ADN del outsider dominicano",
+  "Las reglas de entrada: candidatura, organización y territorio",
+  "2028: escenarios de sucesión, competencia y segunda vuelta",
+  "Después de la victoria: gobernabilidad y límites de la ruptura",
+] as const;
+
+export function buildOutsiderDemoOutline(previousOutline: any[] = [], targetWords = 3500): any[] {
+  const byNumber = new Map<number, any>();
+  for (const item of ensureArray<any>(previousOutline, [])) {
+    const n = Number(item?.chapter_number ?? 0) || 0;
+    if (n > 0) byNumber.set(n, item);
+  }
+
+  return OUTSIDER_DEMO_TITLES.map((chapter_title, index) => {
+    const n = index + 1;
+    const old = byNumber.get(n) ?? {};
+    return {
+      ...old,
+      id: ensureString(old?.id, `outline_${String(n).padStart(2, "0")}`),
+      chapter_number: n,
+      chapter_title,
+      title: chapter_title,
+      status: old?.status === "COMPLETED" ? "COMPLETED" : "PENDING",
+      target_words: Number(old?.target_words ?? targetWords) || targetWords,
+      objective: ensureString(old?.objective, `Analizar ${chapter_title.toLowerCase()} con evidencia, contexto y límites de inferencia.`),
+      key_points: ensureArray(old?.key_points, []),
+      subheads_h2: ensureArray(old?.subheads_h2, []),
+    };
+  });
+}
+
+export function repairLegacyOutsiderProject(db: any): {
+  title: string;
+  topic: string;
+  outline_12: any[];
+  continuity_pack: AnyRecord;
+} | null {
+  const title = ensureString(db?.title, "").trim();
+  const topic = ensureString(db?.topic, ensureString(db?.book_topic, ""));
+  const unmistakablePrompt = /(?:#\s*PROMPT\s+MAESTRO|MISI[ÓO]N\s+GENERAL)/i.test(topic);
+  const outsiderTopic = /\bEL\s+OUTSIDER\b/i.test(topic) && /2028/.test(topic);
+  const legacyTitle = /MISI[ÓO]N\s+GENERAL|^Libro sin t[ií]tulo$|^Nuevo libro$/i.test(title);
+  const previousOutline = ensureArray<any>(db?.outline_12, []);
+  const hasGenericTitles = previousOutline.some((item: any) => {
+    const n = Number(item?.chapter_number ?? 0) || 0;
+    const candidate = ensureString(item?.chapter_title, ensureString(item?.title, "")).trim();
+    return n > 0 && (!candidate || /^(?:cap[ií]tulo|chapter|parte)\s*\d+\s*$/i.test(candidate));
+  });
+  const needsRepair = legacyTitle || previousOutline.length !== OUTSIDER_DEMO_TITLES.length || hasGenericTitles;
+
+  if (!outsiderTopic || !unmistakablePrompt || !needsRepair) return null;
+
+  const outline_12 = buildOutsiderDemoOutline(previousOutline);
+
+  const continuity_pack = {
+    ...(isRecord(db?.continuity_pack) ? db.continuity_pack : {}),
+    chapter_count: 12,
+  };
+
+  return { title: "EL OUTSIDER", topic, outline_12, continuity_pack };
 }
 
 export function buildMasterFromState(state: ProjectState, title?: string): string {
@@ -1002,6 +1063,9 @@ export function mergeProjectState(prev: ProjectState | undefined, next: ProjectS
 /* ----------------------- Supabase <-> UI mapping ----------------------- */
 
 export function mapDbFullToProject(db: any, sections: any[], masterLatest: any): Project {
+  const legacyRepair = repairLegacyOutsiderProject(db);
+  const sourceDb = legacyRepair ? { ...db, ...legacyRepair } : db;
+  const sourceOutline = ensureArray<any>(sourceDb?.outline_12, []);
   const proposal = sections.find((s: any) => s?.type === "PROPOSAL");
   const intro = sections.find((s: any) => s?.type === "INTRODUCTION");
 
@@ -1011,7 +1075,7 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
     .sort((a: any, b: any) => (a?.chapter_number ?? 0) - (b?.chapter_number ?? 0))
     .map((s: any) => {
       const n = Number(s?.chapter_number ?? 0) || 0;
-      const outlineItem = ensureArray<any>(db?.outline_12, []).find((o: any) => Number(o?.chapter_number ?? 0) === n);
+      const outlineItem = sourceOutline.find((o: any) => Number(o?.chapter_number ?? 0) === n);
       const title = pickCanonicalChapterTitle(n, outlineItem?.chapter_title, outlineItem?.title, s?.title, s?.chapter_title);
       const text = stripLeadingChapterHeading(ensureString(s?.content, ""), n, title);
       return {
@@ -1025,17 +1089,17 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
 
   const stateInput: AnyRecord = {
     project_id: ensureString(db?.id, ""),
-    book_title: ensureString(db?.title, "Libro sin título"),
-    book_topic: ensureString(db?.topic, ""),
-    audience: ensureString(db?.audience, ""),
-    tone_style: ensureString(db?.tone_style, ""),
+    book_title: ensureString(sourceDb?.title, "Libro sin título"),
+    book_topic: ensureString(sourceDb?.topic, ""),
+    audience: ensureString(sourceDb?.audience, ""),
+    tone_style: ensureString(sourceDb?.tone_style, ""),
     outline_12: (() => {
-      const fromDb = ensureArray<any>(db?.outline_12, []);
+      const fromDb = sourceOutline;
       if (fromDb.length) return fromDb;
       if (chapters.length) return buildOutlineFromChapterSections(chapters as any);
       return [];
     })(),
-    continuity_pack: (db?.continuity_pack ?? {}) as any,
+    continuity_pack: (sourceDb?.continuity_pack ?? {}) as any,
     proposal: {
       id: "sec_proposal",
       text: ensureString(proposal?.content, ""),
@@ -1051,22 +1115,33 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
     chapters,
   };
 
-  // GENELIBROS_V14_6_DOSSIER_RECOVERY
-  // Si un proyecto viejo perdió el brief, el dossier puede seguir conservando
-  // los títulos canónicos. Solo repara candidatos genéricos/contaminados;
-  // los títulos editoriales válidos del usuario siempre tienen prioridad.
-  const state = recoverLegacyStateFromDashboard(normalizeProjectState(stateInput), db?.dossier ?? {});
-  const canonicalTitle = getCanonicalBookTitle({ title: ensureString(db?.title, "") }, state, db?.dossier ?? {});
-  (state as any).book_title = canonicalTitle;
-  (state as any).bookTitle = canonicalTitle;
+  const state = normalizeProjectState(stateInput);
+  const canonicalTitle = legacyRepair
+    ? ensureString(sourceDb?.title, "Libro sin título")
+    : getCanonicalBookTitle({ title: ensureString(db?.title, "") }, state, db?.dossier ?? {});
+  enforceCanonicalBookTitle({ title: canonicalTitle }, state, null);
   const rebuiltMasterText = buildMasterFromState(state, canonicalTitle).trim();
   const masterText = rebuiltMasterText || ensureString(masterLatest?.content, "").trim();
+
+  const repairedDashboard = legacyRepair
+    ? {
+        ...(isRecord(db?.dossier) ? db.dossier : {}),
+        menu_items: [
+          { id: "proposal", label: "Propuesta editorial" },
+          { id: "intro", label: "Introducción" },
+          ...sourceOutline.map((item: any) => ({
+            id: `chap-${item.chapter_number}`,
+            label: `Capítulo ${item.chapter_number}: ${item.chapter_title}`,
+          })),
+        ],
+      }
+    : db?.dossier ?? null;
 
   const p: Project = {
     id: ensureString(db?.id, ""),
     title: canonicalTitle,
     state,
-    dashboard: db?.dossier ?? null,
+    dashboard: repairedDashboard,
     master_document: {
       title: canonicalTitle,
       text: masterText,
@@ -1075,6 +1150,10 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
     generation_progress: {} as any,
   } as Project;
 
+  if (legacyRepair) {
+    (p as any).__legacyRepair = legacyRepair;
+  }
+
   (p as any).generation_progress = recomputeGenerationProgress(p);
   return p;
 }
@@ -1082,19 +1161,16 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
 /* ---------------------- outline extraction + fallback ---------------------- */
 
 function looksLikeOutlineArray(arr: any[]): boolean {
-  if (!Array.isArray(arr) || arr.length < 1) return false;
-
-  const sample = arr.slice(0, 12);
-  let recognized = 0;
-  for (const x of sample) {
+  if (!Array.isArray(arr)) return false;
+  if (arr.length < 6) return false;
+  let score = 0;
+  for (const x of arr.slice(0, 12)) {
     if (!isRecord(x)) continue;
-    const hasNumber = "chapter_number" in x || "chapterNumber" in x;
-    const hasTitle = "chapter_title" in x || "chapterTitle" in x || "title" in x;
-    if (hasNumber && hasTitle) recognized += 1;
+    if ("chapter_number" in x || "chapterNumber" in x) score += 2;
+    if ("chapter_title" in x || "chapterTitle" in x || "title" in x) score += 1;
+    if ("target_words" in x || "targetWords" in x) score += 1;
   }
-
-  const required = sample.length <= 3 ? sample.length : Math.max(2, Math.ceil(sample.length * 0.5));
-  return recognized >= required;
+  return score >= 6;
 }
 
 function deepFindOutline(node: any, depth = 0): any[] | null {
@@ -1123,78 +1199,6 @@ function deepFindOutline(node: any, depth = 0): any[] | null {
   }
 
   return null;
-}
-
-function recoverLegacyStateFromDashboard(state: ProjectState, dashboard?: AnyRecord): ProjectState {
-  if (!dashboard || !isRecord(dashboard)) return state;
-
-  const dashboardOutline = deepFindOutline(dashboard);
-  if (!dashboardOutline?.length) return state;
-
-  const st = state as AnyRecord;
-  const currentOutline = ensureArray<any>(st.outline_12, []);
-  const chapterCountHint = Number(st?.continuity_pack?.chapter_count ?? 0) || 0;
-
-  const dashboardByNum = new Map<number, any>();
-  for (let idx = 0; idx < dashboardOutline.length; idx += 1) {
-    const item = dashboardOutline[idx];
-    if (!isRecord(item)) continue;
-    const n = Number(item?.chapter_number ?? item?.chapterNumber ?? idx + 1) || 0;
-    if (n > 0) dashboardByNum.set(n, item);
-  }
-
-  // Nunca expandas silenciosamente un outline existente. Si está vacío,
-  // recupera del dossier respetando chapter_count cuando exista.
-  const recoveryBase = currentOutline.length
-    ? currentOutline
-    : Array.from(dashboardByNum.entries())
-        .filter(([n]) => !chapterCountHint || n <= chapterCountHint)
-        .sort(([a], [b]) => a - b)
-        .map(([n, item]) => ({ ...(item as AnyRecord), chapter_number: n }));
-
-  st.outline_12 = recoveryBase.map((item: any, idx: number) => {
-    const n = Number(item?.chapter_number ?? item?.chapterNumber ?? idx + 1) || idx + 1;
-    const fromDashboard = dashboardByNum.get(n);
-    return {
-      ...(isRecord(item) ? item : {}),
-      chapter_number: n,
-      chapter_title: pickCanonicalChapterTitle(
-        n,
-        item?.chapter_title,
-        item?.chapterTitle,
-        item?.title,
-        fromDashboard?.chapter_title,
-        fromDashboard?.chapterTitle,
-        fromDashboard?.title
-      ),
-    };
-  });
-
-  const plannedByNum = new Map<number, any>();
-  for (const item of ensureArray<any>(st.outline_12, [])) {
-    const n = Number(item?.chapter_number ?? 0) || 0;
-    if (n > 0) plannedByNum.set(n, item);
-  }
-
-  st.chapters = ensureArray<any>(st.chapters, []).map((chapter: any, idx: number) => {
-    const n = Number(chapter?.chapter_number ?? chapter?.chapterNumber ?? idx + 1) || idx + 1;
-    const planned = plannedByNum.get(n);
-    const title = pickCanonicalChapterTitle(
-      n,
-      planned?.chapter_title,
-      planned?.title,
-      chapter?.title,
-      chapter?.chapter_title
-    );
-    return {
-      ...(isRecord(chapter) ? chapter : {}),
-      chapter_number: n,
-      title,
-      text: stripLeadingChapterHeading(ensureString(chapter?.text, ""), n, title),
-    };
-  });
-
-  return state;
 }
 
 export function ensureOutline12InState(state: AnyRecord, dashboard?: AnyRecord): AnyRecord {

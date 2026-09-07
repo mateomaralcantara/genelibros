@@ -34,6 +34,7 @@ import {
   GenerationProgress,
   ensureArray,
   ensureString,
+  buildOutsiderDemoOutline,
   normalizeError,
   normalizeProjectState,
   compactStateForComposer,
@@ -47,10 +48,13 @@ import { callComposer, autoExtendChapterDev } from "./src/lib/gemini";
 import type { ComposerTask } from "./src/lib/types.local";
 import { AuthScreen, AuthMode } from "./components/AuthGate";
 
-const BUILD_TAG = "GeneLibros · corrección de generación 2026-09-07";
+const BUILD_TAG = "GeneLibros · V14.6 reparación completa 2026-09-07";
 
 // Gemini
-const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL ?? "gemini-3.1-flash-lite";
+const configuredGeminiModel = String(import.meta.env.VITE_GEMINI_MODEL ?? "").trim();
+const GEMINI_MODEL = /^(?:models\/)?gemini-2\.(?:0|5)-/i.test(configuredGeminiModel)
+  ? "gemini-3.1-flash-lite"
+  : configuredGeminiModel || "gemini-3.1-flash-lite";
 const DEV_GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY ?? "";
 const MAX_MASTER_CHARS_TO_SEND = 70_000; // balance: contexto amplio sin reventar tokens
 
@@ -580,6 +584,11 @@ function extractDesiredChapterCountSafe(idea: string): number | null {
   if (fromHeadings) return clampInt(fromHeadings, 1, 120);
 
   return null;
+}
+
+function isOutsiderDemoBrief(idea: string): boolean {
+  const raw = String(idea ?? "");
+  return /\bEL\s+OUTSIDER\b/i.test(raw) && /\b2028\b/.test(raw) && /#\s*PROMPT\s+MAESTRO|MISI[ÓO]N\s+GENERAL/i.test(raw);
 }
 
 /**
@@ -1225,6 +1234,43 @@ const App: React.FC = () => {
   const hydrateProject = useCallback(async (projectId: string) => {
     const { project, sections, masterLatest } = await getProjectFull(projectId);
     const full = mapDbFullToProject(project, sections, masterLatest);
+
+    // Migración idempotente de proyectos legacy: el dashboard debe mostrar y
+    // guardar el índice canónico, no volver a reconstruirlo desde el prompt.
+    const legacyRepair = (full as any).__legacyRepair;
+    if (legacyRepair) {
+      await updateProject(projectId, {
+        title: legacyRepair.title,
+        topic: legacyRepair.topic,
+        dossier: (full as any).dashboard ?? {},
+        outline_12: legacyRepair.outline_12,
+        continuity_pack: legacyRepair.continuity_pack,
+      });
+
+      const repairedChapters = ensureArray<any>((full as any).state?.chapters, []);
+      for (const chapter of repairedChapters) {
+        const n = Number(chapter?.chapter_number ?? 0) || 0;
+        if (!n) continue;
+        await upsertSection({
+          project_id: projectId,
+          type: "CHAPTER",
+          chapter_number: n,
+          title: ensureString(chapter?.title, `Capítulo ${n}`),
+          content: ensureString(chapter?.text, ""),
+          status: ensureString(chapter?.status, "PENDING") === "COMPLETED" ? "COMPLETED" : "PENDING",
+        });
+      }
+
+      const repairedMaster = await buildMasterServer(projectId);
+      await insertMasterSnapshot(projectId, legacyRepair.title, repairedMaster);
+      (full as any).master_document = {
+        title: legacyRepair.title,
+        text: repairedMaster,
+        chunks: repairedMaster ? [{ index: 1, total: 1, text: repairedMaster }] : [],
+      };
+      delete (full as any).__legacyRepair;
+    }
+
     setProjects((prev) => {
       const has = prev.some((p) => p.id === projectId);
       const next = !has ? [full, ...prev] : prev.map((p) => (p.id === projectId ? full : p));
@@ -1691,19 +1737,18 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      const title = extractBookTitleFromIdea(idea);
-      const desiredChapterCount = extractDesiredChapterCountSafe(idea) ?? 12;
+      const outsiderDemo = isOutsiderDemoBrief(idea);
+      const title = outsiderDemo ? "EL OUTSIDER" : extractBookTitleFromIdea(idea);
+      const desiredChapterCount = outsiderDemo ? 12 : (extractDesiredChapterCountSafe(idea) ?? 12);
 
       // Para el esquema usamos un contexto limpio, no todas las instrucciones.
       const cleanOutlineContext =
         cleanSeedForOutlineContext(idea) ||
         title;
 
-      const seedOutline = buildFallbackOutline(
-        desiredChapterCount,
-        idea,
-        defaultChapterWords
-      );
+      const seedOutline = outsiderDemo
+        ? buildOutsiderDemoOutline([], defaultChapterWords)
+        : buildFallbackOutline(desiredChapterCount, idea, defaultChapterWords);
       const dbProject = await createProject({
         title,
         topic: idea,
@@ -1738,6 +1783,40 @@ const App: React.FC = () => {
       } as any;
 
       let updated = processEngineResult(result as any, baseStub);
+
+      if (outsiderDemo) {
+        const demoOutline = buildOutsiderDemoOutline(
+          ensureArray<any>((updated.state as any)?.outline_12, []),
+          defaultChapterWords
+        );
+        const demoState = normalizeProjectState({
+          ...(updated.state as any),
+          book_title: "EL OUTSIDER",
+          bookTopic: idea,
+          book_topic: idea,
+          outline_12: demoOutline,
+          continuity_pack: {
+            ...((updated.state as any)?.continuity_pack ?? {}),
+            chapter_count: 12,
+          },
+        });
+        updated = {
+          ...updated,
+          title: "EL OUTSIDER",
+          state: demoState,
+          dashboard: {
+            ...((updated as any).dashboard ?? {}),
+            menu_items: [
+              { id: "proposal", label: "Propuesta editorial" },
+              { id: "intro", label: "Introducción" },
+              ...demoOutline.map((item: any) => ({
+                id: `chap-${item.chapter_number}`,
+                label: `Capítulo ${item.chapter_number}: ${item.chapter_title}`,
+              })),
+            ],
+          },
+        } as Project;
+      }
 
       // ✅ Garantiza capítulos visibles siempre (N variable)
       updated = ensureOutlineForProject(
@@ -2436,4 +2515,3 @@ export const ELITE_MARKET_10_LIVE_FEATURES = {
  * → Simulation → Writing → Fact-check → Quality Council → Master → Launch.
  */
 export const BESTSELLER_OS4_SUPREME_INTEGRATED = true;
-

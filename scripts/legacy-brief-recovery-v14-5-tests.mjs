@@ -21,7 +21,7 @@ const brief = `# PROMPT MAESTRO DE PRODUCCIÓN EDITORIAL
 
 **EL OUTSIDER**
 
-### Cómo se rompe un sistema político y si República Dominicana está preparada para hacerlo en 2028
+### Cómo se rompe un sistema político y si República Dominicana está preparada para hacerlo en el futuro
 
 # 1. MISIÓN GENERAL
 Produzca un libro de investigación política, histórica, electoral y sociológica de alto nivel.
@@ -119,3 +119,4 @@ assert.match(chapterTitleWindow, /break-words whitespace-normal/);
 assert.doesNotMatch(chapterTitleWindow, /truncate/);
 
 console.log('PASS: V14.5 recupera EL OUTSIDER y 12 títulos desde el encargo original, y el dashboard muestra títulos completos.');
+

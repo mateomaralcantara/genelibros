@@ -168,6 +168,19 @@ const ALLOWED_MODELS = new Set<string>([
   'gemini-3.1-pro-preview',
 ]);
 
+// Vercel puede conservar VITE_GEMINI_MODEL antiguo.  Esos identificadores
+// retirados no deben llegar al proveedor ni convertir la respuesta en un 500.
+const RETIRED_MODEL_ALIASES: Record<string, string> = {
+  'gemini-2.5-flash': 'gemini-3.1-flash-lite',
+  'gemini-2.5-pro': 'gemini-3.1-flash-lite',
+  'gemini-2.0-flash': 'gemini-3.1-flash-lite',
+};
+
+function normalizeRequestedModel(value: unknown): string {
+  const raw = String(value ?? '').trim().replace(/^models\//i, '');
+  return RETIRED_MODEL_ALIASES[raw.toLowerCase()] ?? raw;
+}
+
 function cleanModelText(text: string): string {
   return String(text ?? '')
     .replace(/^\s*```json\s*/i, '')
@@ -728,7 +741,7 @@ export default async function handler(req: any, res: any) {
 
     if (!task || !state) return res.status(400).json({ error: 'Missing task/state' });
 
-    const requestedModel = String(body?.model || 'gemini-3.1-flash-lite');
+    const requestedModel = normalizeRequestedModel(body?.model || 'gemini-3.1-flash-lite');
     const model = ALLOWED_MODELS.has(requestedModel) ? requestedModel : 'gemini-3.1-flash-lite';
 
     const ai = new GoogleGenAI({ apiKey });

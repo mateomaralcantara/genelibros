@@ -157,7 +157,13 @@ function getFallbackModels(primary: string): string[] {
     .filter(Boolean);
 
   const defaults = ["gemini-3.1-flash", "gemini-3.1-flash-lite", "gemini-3-pro-preview"];
-  return Array.from(new Set([primary, ...envList, ...defaults].map((s) => s.trim()).filter(Boolean)));
+  const normalize = (value: string) => {
+    const model = value.trim().replace(/^models\//i, "");
+    return /^(?:gemini-2\.0|gemini-2\.5)-/i.test(model)
+      ? "gemini-3.1-flash-lite"
+      : model;
+  };
+  return Array.from(new Set([primary, ...envList, ...defaults].map(normalize).filter(Boolean)));
 }
 
 function getBookTitle(state: any): string {
@@ -786,4 +792,3 @@ export async function autoExtendChapterDev(params: {
   // Ya se auto-extiende dentro del flujo principal (callLongSectionPlainDev).
   return params.project;
 }
-
