@@ -1,0 +1,55 @@
+name: Fix full-book queue V14.2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/fix-full-book-queue-v14-2.py
+      - .github/workflows/fix-full-book-queue-v14-2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-full-book-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+          cache: npm
+
+      - name: Patch source
+        run: python3 scripts/fix-full-book-queue-v14-2.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Diff check
+        run: git diff --check -- components/GenerationDashboard.tsx
+
+      - name: Commit verified source fix
+        shell: bash
+        run: |
+          if git diff --quiet -- components/GenerationDashboard.tsx; then
+            echo "No source change to commit."
+            exit 0
+          fi
+          git config user.name "GeneLibros Repair Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/GenerationDashboard.tsx
+          git commit -m "fix: generate complete books sequentially"
+          git push origin HEAD:main
