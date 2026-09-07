@@ -16,6 +16,44 @@ marker = "GENELIBROS_V14_6_DOSSIER_RECOVERY"
 if marker in editor:
     print("V14.6 editor already installed")
 else:
+    # A quote at the end of a title may be real punctuation (e.g. “los mismos de siempre”).
+    # Strip quotes only when they are a matching wrapper around the whole value.
+    old_clean = r'''function cleanBriefTitleLine(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^\*\*(.*?)\*\*$/, "$1")
+    .replace(/^__(.*?)__$/, "$1")
+    .replace(/^["“”'‘’]+|["“”'‘’]+$/g, "")
+    .trim();
+}'''
+    new_clean = r'''function cleanBriefTitleLine(value: unknown): string {
+  let out = String(value ?? "")
+    .trim()
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^\*\*(.*?)\*\*$/, "$1")
+    .replace(/^__(.*?)__$/, "$1")
+    .trim();
+
+  const quotePairs: Array<[string, string]> = [
+    ['"', '"'],
+    ["'", "'"],
+    ['“', '”'],
+    ['‘', '’'],
+    ['«', '»'],
+  ];
+
+  for (const [open, close] of quotePairs) {
+    if (out.length >= 2 && out.startsWith(open) && out.endsWith(close)) {
+      out = out.slice(open.length, out.length - close.length).trim();
+      break;
+    }
+  }
+
+  return out;
+}'''
+    editor = replace_once(editor, old_clean, new_clean, "preserve legitimate title quotation marks")
+
     # Remove one-book emergency workaround. Recovery must be generic for every book.
     old_title_seed = '''    book_title: ensureString(db?.title, "Libro sin título").replace(/^MISIÓN GENERAL.*$/i, "EL OUTSIDER"),'''
     new_title_seed = '''    book_title: ensureString(db?.title, "Libro sin título"),'''
