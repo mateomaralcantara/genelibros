@@ -607,13 +607,29 @@ export function compactStateForComposer(project: Project, maxMasterChars: number
 // genéricos o fragmentos del prompt. Recuperamos únicamente metadatos explícitos
 // del encargo original; nunca inventamos un título nuevo.
 function cleanBriefTitleLine(value: unknown): string {
-  return String(value ?? "")
+  let out = String(value ?? "")
     .trim()
     .replace(/^#{1,6}\s*/, "")
     .replace(/^\*\*(.*?)\*\*$/, "$1")
     .replace(/^__(.*?)__$/, "$1")
-    .replace(/^["“”'‘’]+|["“”'‘’]+$/g, "")
     .trim();
+
+  const quotePairs: Array<[string, string]> = [
+    ['"', '"'],
+    ["'", "'"],
+    ['“', '”'],
+    ['‘', '’'],
+    ['«', '»'],
+  ];
+
+  for (const [open, close] of quotePairs) {
+    if (out.length >= 2 && out.startsWith(open) && out.endsWith(close)) {
+      out = out.slice(open.length, out.length - close.length).trim();
+      break;
+    }
+  }
+
+  return out;
 }
 
 export function extractBookTitleFromBrief(brief: string): string {
@@ -1009,7 +1025,7 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
 
   const stateInput: AnyRecord = {
     project_id: ensureString(db?.id, ""),
-    book_title: ensureString(db?.title, "Libro sin título").replace(/^MISIÓN GENERAL.*$/i, "EL OUTSIDER"),
+    book_title: ensureString(db?.title, "Libro sin título"),
     book_topic: ensureString(db?.topic, ""),
     audience: ensureString(db?.audience, ""),
     tone_style: ensureString(db?.tone_style, ""),
@@ -1035,7 +1051,11 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
     chapters,
   };
 
-  const state = normalizeProjectState(stateInput);
+  // GENELIBROS_V14_6_DOSSIER_RECOVERY
+  // Si un proyecto viejo perdió el brief, el dossier puede seguir conservando
+  // los títulos canónicos. Solo repara candidatos genéricos/contaminados;
+  // los títulos editoriales válidos del usuario siempre tienen prioridad.
+  const state = recoverLegacyStateFromDashboard(normalizeProjectState(stateInput), db?.dossier ?? {});
   const canonicalTitle = getCanonicalBookTitle({ title: ensureString(db?.title, "") }, state, db?.dossier ?? {});
   (state as any).book_title = canonicalTitle;
   (state as any).bookTitle = canonicalTitle;
@@ -1062,16 +1082,19 @@ export function mapDbFullToProject(db: any, sections: any[], masterLatest: any):
 /* ---------------------- outline extraction + fallback ---------------------- */
 
 function looksLikeOutlineArray(arr: any[]): boolean {
-  if (!Array.isArray(arr)) return false;
-  if (arr.length < 6) return false;
-  let score = 0;
-  for (const x of arr.slice(0, 12)) {
+  if (!Array.isArray(arr) || arr.length < 1) return false;
+
+  const sample = arr.slice(0, 12);
+  let recognized = 0;
+  for (const x of sample) {
     if (!isRecord(x)) continue;
-    if ("chapter_number" in x || "chapterNumber" in x) score += 2;
-    if ("chapter_title" in x || "chapterTitle" in x || "title" in x) score += 1;
-    if ("target_words" in x || "targetWords" in x) score += 1;
+    const hasNumber = "chapter_number" in x || "chapterNumber" in x;
+    const hasTitle = "chapter_title" in x || "chapterTitle" in x || "title" in x;
+    if (hasNumber && hasTitle) recognized += 1;
   }
-  return score >= 6;
+
+  const required = sample.length <= 3 ? sample.length : Math.max(2, Math.ceil(sample.length * 0.5));
+  return recognized >= required;
 }
 
 function deepFindOutline(node: any, depth = 0): any[] | null {
@@ -1100,6 +1123,78 @@ function deepFindOutline(node: any, depth = 0): any[] | null {
   }
 
   return null;
+}
+
+function recoverLegacyStateFromDashboard(state: ProjectState, dashboard?: AnyRecord): ProjectState {
+  if (!dashboard || !isRecord(dashboard)) return state;
+
+  const dashboardOutline = deepFindOutline(dashboard);
+  if (!dashboardOutline?.length) return state;
+
+  const st = state as AnyRecord;
+  const currentOutline = ensureArray<any>(st.outline_12, []);
+  const chapterCountHint = Number(st?.continuity_pack?.chapter_count ?? 0) || 0;
+
+  const dashboardByNum = new Map<number, any>();
+  for (let idx = 0; idx < dashboardOutline.length; idx += 1) {
+    const item = dashboardOutline[idx];
+    if (!isRecord(item)) continue;
+    const n = Number(item?.chapter_number ?? item?.chapterNumber ?? idx + 1) || 0;
+    if (n > 0) dashboardByNum.set(n, item);
+  }
+
+  // Nunca expandas silenciosamente un outline existente. Si está vacío,
+  // recupera del dossier respetando chapter_count cuando exista.
+  const recoveryBase = currentOutline.length
+    ? currentOutline
+    : Array.from(dashboardByNum.entries())
+        .filter(([n]) => !chapterCountHint || n <= chapterCountHint)
+        .sort(([a], [b]) => a - b)
+        .map(([n, item]) => ({ ...(item as AnyRecord), chapter_number: n }));
+
+  st.outline_12 = recoveryBase.map((item: any, idx: number) => {
+    const n = Number(item?.chapter_number ?? item?.chapterNumber ?? idx + 1) || idx + 1;
+    const fromDashboard = dashboardByNum.get(n);
+    return {
+      ...(isRecord(item) ? item : {}),
+      chapter_number: n,
+      chapter_title: pickCanonicalChapterTitle(
+        n,
+        item?.chapter_title,
+        item?.chapterTitle,
+        item?.title,
+        fromDashboard?.chapter_title,
+        fromDashboard?.chapterTitle,
+        fromDashboard?.title
+      ),
+    };
+  });
+
+  const plannedByNum = new Map<number, any>();
+  for (const item of ensureArray<any>(st.outline_12, [])) {
+    const n = Number(item?.chapter_number ?? 0) || 0;
+    if (n > 0) plannedByNum.set(n, item);
+  }
+
+  st.chapters = ensureArray<any>(st.chapters, []).map((chapter: any, idx: number) => {
+    const n = Number(chapter?.chapter_number ?? chapter?.chapterNumber ?? idx + 1) || idx + 1;
+    const planned = plannedByNum.get(n);
+    const title = pickCanonicalChapterTitle(
+      n,
+      planned?.chapter_title,
+      planned?.title,
+      chapter?.title,
+      chapter?.chapter_title
+    );
+    return {
+      ...(isRecord(chapter) ? chapter : {}),
+      chapter_number: n,
+      title,
+      text: stripLeadingChapterHeading(ensureString(chapter?.text, ""), n, title),
+    };
+  });
+
+  return state;
 }
 
 export function ensureOutline12InState(state: AnyRecord, dashboard?: AnyRecord): AnyRecord {
