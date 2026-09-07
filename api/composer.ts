@@ -1,4 +1,15 @@
-import { pickCanonicalChapterTitle } from "../src/lib/editor";
+function pickCanonicalChapterTitle(chapterNumber: number, ...candidates: unknown[]): string {
+  const n = Number(chapterNumber) || 0;
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const raw = candidate.trim().replace(/^#{1,6}\s*/, "");
+    if (!raw || /^(?:cap[ií]tulo|chapter|parte)\s*\d*\s*[:.\-–—]?$/i.test(raw)) continue;
+    const title = raw.replace(new RegExp(String.raw`^(?:cap[ií]tulo|chapter)\s*${n}\s*[:.\-–—]\s*`, "i"), "").trim();
+    if (title) return title;
+  }
+  return n > 0 ? `Capítulo ${n}` : "Capítulo";
+}
+
 
 /**
  * ELITE_STRUCTURED_LOGGING_10
@@ -664,7 +675,7 @@ function buildEngineResponseFromPlainText(
 
 function buildSafeDossierFallback(state: any, reason: string): any {
   return {
-    ok: true,
+    ok: false,
     dashboard: {
       warning:
         'El modelo devolvió un expediente incompleto. Se conservó el estado inicial para evitar perder el proyecto.',
@@ -876,6 +887,16 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    if (parsed?.ok !== true) return res.status(502).json(parsed);
+    const planned = parsed?.project_state_updated?.outline_12;
+    const expectedCount = Number(state?.continuity_pack?.chapter_count) || ensureArrayValue<any>(state?.outline_12).length;
+    const nums = new Set(ensureArrayValue<any>(planned).map((item: any) => Number(item?.chapter_number)));
+    const invalid = !Array.isArray(planned) || !planned.length || (expectedCount > 0 && (planned.length !== expectedCount || Array.from({length: expectedCount}, (_, i) => i + 1).some(n => !nums.has(n)))) || planned.some((item: any) => {
+      const n = Number(item?.chapter_number);
+      const title = pickCanonicalChapterTitle(n, item?.chapter_title, item?.title);
+      return !n || title === `Capítulo ${n}`;
+    });
+    if (invalid) return res.status(502).json({error: 'El modelo no entregó el índice completo con títulos editoriales. Se conservó el proyecto; la redacción no se ha iniciado.'});
     return res.status(200).json(parsed);
   } catch (e: any) {
     const statusCode = typeof e?.statusCode === 'number' ? e.statusCode : 500;

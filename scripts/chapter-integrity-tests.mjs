@@ -28,3 +28,23 @@ const {buildProductionPlainPrompt}=await import(moduleUrl(source));
 const prompt=buildProductionPlainPrompt({action:'GENERATE_CHAPTER',chapter_number:1,target_length_words:2200},{...original,research_context:'FUENTE_APORTADA',outline_12:[{chapter_number:1,chapter_title:'La escuela',subheads_h2:['APARTADO_OBLIGATORIO'],required_facts:['HECHO_POR_VERIFICAR']}],continuity_pack:{canon:'CONTINUIDAD_OBLIGATORIA'}});
 for(const part of [original.book_topic,'FUENTE_APORTADA','APARTADO_OBLIGATORIO','HECHO_POR_VERIFICAR','CONTINUIDAD_OBLIGATORIA']) assert.ok(prompt.includes(part),part);
 console.log('PASS: títulos, normalización, merge parcial, encargo original, documento maestro, rechazo de capítulo incorrecto y contexto de producción.');
+const geminiSource = fs.readFileSync('src/lib/gemini.ts', 'utf8').replace('from "./editor"', `from ${JSON.stringify(editorUrl)}`);
+const {parseComposerHttpResponse} = await import(moduleUrl(geminiSource));
+assert.throws(()=>parseComposerHttpResponse('A server error has occurred\nFUNCTION_INVOCATION_FAILED',500),/función de generación no pudo iniciarse/);
+assert.throws(()=>parseComposerHttpResponse('<html>Gateway timeout</html>',504),/HTTP 504/);
+assert.throws(()=>parseComposerHttpResponse('{"error":"Quota exhausted"}',429),/Quota exhausted/);
+assert.equal(parseComposerHttpResponse('{"ok":true,"dashboard":{},"project_state_updated":{},"master_document":{}}',200).ok,true);
+// Import the real server module under native ESM: frontend builds cannot detect this failure.
+const runtimePath = new URL('../api/composer-runtime-check.mjs', import.meta.url);
+fs.writeFileSync(runtimePath,ts.transpileModule(fs.readFileSync('api/composer.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
+try {
+  const {default: handler} = await import(runtimePath.href);
+  let code; let body;
+  const res={status(n){code=n;return this;},json(data){body=data;return this;}};
+  const previousKey=process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY='test-not-sent-to-provider';
+  try { await handler({method:'POST',headers:{'content-type':'application/json'},body:{}},res); }
+  finally {if(previousKey===undefined) delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=previousKey;}
+  assert.equal(code,400);assert.equal(body.error,'Missing task/state');
+} finally {fs.unlinkSync(runtimePath);}
+console.log('PASS: native server startup, plain-text 500/504 errors, JSON API errors and successful response. Zero provider calls.');

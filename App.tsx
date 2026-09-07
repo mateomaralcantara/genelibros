@@ -47,7 +47,7 @@ import { callComposer, autoExtendChapterDev } from "./src/lib/gemini";
 import type { ComposerTask } from "./src/lib/types.local";
 import { AuthScreen, AuthMode } from "./components/AuthGate";
 
-const BUILD_TAG = "App.tsx v3.2.2 (prompt-leak-safe + explicit-outline-titles) 2026-06-06";
+const BUILD_TAG = "GeneLibros · corrección de generación 2026-09-07";
 
 // Gemini
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL ?? "gemini-3.1-flash-lite";
@@ -274,7 +274,13 @@ function truncateEditorialTitle(value: string, fallback: string): string {
 function extractBookTitleFromIdea(idea: string): string {
   const raw = String(idea ?? "").trim();
 
+  const markdownTitle = raw.match(/(?:^|\n)\s*#{0,6}\s*\*{0,2}T[IÍ]TULO(?: DEL LIBRO| DE TRABAJO)?\*{0,2}\s*:?\s*\n+\s*(?:#{1,6}\s*)?([^\n]+)/i)?.[1];
+  if (markdownTitle) {
+    const title = markdownTitle.replace(/^\*+|\*+$/g, "").trim();
+    if (title && !hasPromptLeak(title)) return truncateEditorialTitle(title, "Nuevo libro");
+  }
   const labeled = extractLabeledValue(raw, [
+    "T[IÍ]TULO DE TRABAJO",
     "T[IÍ]TULO DEL LIBRO",
     "T[IÍ]TULO",
     "NOMBRE DEL LIBRO",
@@ -2430,3 +2436,4 @@ export const ELITE_MARKET_10_LIVE_FEATURES = {
  * → Simulation → Writing → Fact-check → Quality Council → Master → Launch.
  */
 export const BESTSELLER_OS4_SUPREME_INTEGRATED = true;
+

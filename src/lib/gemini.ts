@@ -737,6 +737,19 @@ async function callDossierJsonDev(opts: ComposerCallOpts): Promise<EngineResult>
   throw lastErr ?? new Error("Error llamando Gemini para dossier.");
 }
 
+export function parseComposerHttpResponse(raw: string, status: number): EngineResult {
+  if (status < 200 || status >= 300) {
+    let detail = "";
+    try {
+      const data = JSON.parse(raw);
+      detail = ensureString(data?.error, ensureString(data?.needs_input?.message, ensureString(data?.message, "")));
+    } catch { /* Platform failures can be plain text or HTML, never model JSON. */ }
+    const reason = raw.includes("FUNCTION_INVOCATION_FAILED") ? "La función de generación no pudo iniciarse." : raw.includes("FUNCTION_INVOCATION_TIMEOUT") ? "El servidor agotó el tiempo de generación." : "El servidor no pudo completar la generación.";
+    throw new Error(detail || `${reason} HTTP ${status}. El contenido guardado se conserva.`);
+  }
+  return validateEngineResult(safeJsonParse(raw));
+}
+
 export async function callComposer(opts: ComposerCallOpts): Promise<EngineResult> {
   const action = String((opts.task as any)?.action || "");
 
@@ -756,9 +769,7 @@ export async function callComposer(opts: ComposerCallOpts): Promise<EngineResult
   });
 
   const raw = await r.text();
-  const data = safeJsonParse(raw) as any;
-  if (!r.ok) throw new Error(ensureString(data?.error, ensureString(data?.message, `HTTP ${r.status}`)));
-  return validateEngineResult(data);
+  return parseComposerHttpResponse(raw, r.status);
 }
 
 // Compatibilidad con App.tsx existente (si lo importa).
