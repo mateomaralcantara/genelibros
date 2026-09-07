@@ -110,8 +110,12 @@ assert.equal(project.state.outline_12[0].chapter_title, '¿Que es realmente un o
 assert.equal(project.state.outline_12[11].chapter_title, 'Bolsonaro y la insurgencia desde dentro');
 
 const dashboard = fs.readFileSync('components/GenerationDashboard.tsx', 'utf8');
-assert.match(dashboard, /GENELIBROS_V14_5_FULL_TITLE_WRAP/);
-assert.match(dashboard, /break-words whitespace-normal/);
-assert.doesNotMatch(dashboard, /font-black text-slate-100 truncate/);
+const marker = 'GENELIBROS_V14_5_FULL_TITLE_WRAP';
+assert.match(dashboard, new RegExp(marker));
+const markerIndex = dashboard.indexOf(marker);
+assert.ok(markerIndex >= 0);
+const chapterTitleWindow = dashboard.slice(markerIndex, markerIndex + 500);
+assert.match(chapterTitleWindow, /break-words whitespace-normal/);
+assert.doesNotMatch(chapterTitleWindow, /truncate/);
 
 console.log('PASS: V14.5 recupera EL OUTSIDER y 12 títulos desde el encargo original, y el dashboard muestra títulos completos.');
