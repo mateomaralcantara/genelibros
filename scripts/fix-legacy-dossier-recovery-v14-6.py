@@ -54,6 +54,37 @@ else:
 }'''
     editor = replace_once(editor, old_clean, new_clean, "preserve legitimate title quotation marks")
 
+    # A valid outline may contain 1..120 chapters. The old >=6 heuristic made
+    # dossier recovery fail for short books.
+    old_outline_detector = r'''function looksLikeOutlineArray(arr: any[]): boolean {
+  if (!Array.isArray(arr)) return false;
+  if (arr.length < 6) return false;
+  let score = 0;
+  for (const x of arr.slice(0, 12)) {
+    if (!isRecord(x)) continue;
+    if ("chapter_number" in x || "chapterNumber" in x) score += 2;
+    if ("chapter_title" in x || "chapterTitle" in x || "title" in x) score += 1;
+    if ("target_words" in x || "targetWords" in x) score += 1;
+  }
+  return score >= 6;
+}'''
+    new_outline_detector = r'''function looksLikeOutlineArray(arr: any[]): boolean {
+  if (!Array.isArray(arr) || arr.length < 1) return false;
+
+  const sample = arr.slice(0, 12);
+  let recognized = 0;
+  for (const x of sample) {
+    if (!isRecord(x)) continue;
+    const hasNumber = "chapter_number" in x || "chapterNumber" in x;
+    const hasTitle = "chapter_title" in x || "chapterTitle" in x || "title" in x;
+    if (hasNumber && hasTitle) recognized += 1;
+  }
+
+  const required = sample.length <= 3 ? sample.length : Math.max(2, Math.ceil(sample.length * 0.5));
+  return recognized >= required;
+}'''
+    editor = replace_once(editor, old_outline_detector, new_outline_detector, "support dossier outlines with any chapter count")
+
     # Remove one-book emergency workaround. Recovery must be generic for every book.
     old_title_seed = '''    book_title: ensureString(db?.title, "Libro sin título").replace(/^MISIÓN GENERAL.*$/i, "EL OUTSIDER"),'''
     new_title_seed = '''    book_title: ensureString(db?.title, "Libro sin título"),'''
