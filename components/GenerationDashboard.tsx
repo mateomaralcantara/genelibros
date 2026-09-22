@@ -1,5 +1,5 @@
 import { pickCanonicalChapterTitle } from "../src/lib/editor";
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { dashboardStyles, type DashboardVariant } from "./dashboardStyles";
 import type { Project } from "../types";
 import {
@@ -323,7 +323,7 @@ function keyToHuman(key: string) {
 const GenerationDashboard = function GenerationDashboard({
   project,
   onGenerate,
-  onGenerateRemaining: _onGenerateRemaining,
+  onGenerateRemaining,
   onOpenBookView,
   isGeneratingGlobal,
 }: GenerationDashboardProps) {
@@ -470,14 +470,11 @@ const GenerationDashboard = function GenerationDashboard({
 
   const selectedStatus: Status = (gp?.[selectedKey] || "pending") as Status;
 
-  const autoQueueRef = useRef(false);
-  const [autoGeneratingAll, setAutoGeneratingAll] = useState(false);
-
   const canGenerateSelected = useMemo(() => {
-    if (isGeneratingGlobal || autoGeneratingAll) return false;
+    if (isGeneratingGlobal) return false;
     if (selectedStatus === "generating") return false;
     return true;
-  }, [autoGeneratingAll, isGeneratingGlobal, selectedStatus]);
+  }, [isGeneratingGlobal, selectedStatus]);
 
   const handleGenerateSelected = useCallback(() => {
     if (!canGenerateSelected) return;
@@ -499,90 +496,11 @@ const GenerationDashboard = function GenerationDashboard({
 
   const hasPendingBlueprint = blueprintDone.done < blueprintDone.total;
 
-
-  const handleAutogenerateAll = useCallback(async () => {
-    if (autoQueueRef.current || isGeneratingGlobal || !hasPendingBlueprint) return;
-
-    autoQueueRef.current = true;
-    setAutoGeneratingAll(true);
-
-    const wasAlreadyCompleted = (key: string) => {
-      if ((gp?.[key] || "pending") === "completed") return true;
-
-      if (key === "proposal") {
-        return String(state?.proposal?.status || "").toUpperCase() === "COMPLETED";
-      }
-
-      if (key === "intro") {
-        return String(state?.introduction?.status || "").toUpperCase() === "COMPLETED";
-      }
-
-      const match = /^chap-(\d+)$/.exec(key);
-      const n = Number(match?.[1] ?? 0) || 0;
-      if (!n) return false;
-
-      const chapter = chaptersArr.find(
-        (item: any) => Number(item?.chapter_number ?? 0) === n
-      );
-
-      return (
-        String(chapter?.status || "").toUpperCase() === "COMPLETED" &&
-        String(chapter?.text || "").trim().length > 0
-      );
-    };
-
-    try {
-      const queue = [...blueprintKeys];
-
-      console.log("[V14.2] FULL BOOK DASHBOARD QUEUE START", {
-        projectId: (project as any)?.id,
-        total: queue.length,
-        chapters: effectiveOutline.length,
-      });
-
-      for (const key of queue) {
-        if (wasAlreadyCompleted(key)) continue;
-
-        let result: void | boolean;
-
-        if (key === "proposal") {
-          result = await Promise.resolve(onGenerate("GENERATE_PROPOSAL"));
-        } else if (key === "intro") {
-          result = await Promise.resolve(onGenerate("GENERATE_INTRODUCTION"));
-        } else {
-          const n = Number(key.replace("chap-", ""));
-          if (!Number.isFinite(n) || n <= 0) continue;
-          result = await Promise.resolve(onGenerate("GENERATE_CHAPTER", n));
-        }
-
-        if (result === false) {
-          console.warn(`[V14.2] ${key} falló; la cola continúa con la siguiente sección.`);
-        }
-
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
-      }
-
-      console.log("[V14.2] FULL BOOK DASHBOARD QUEUE END");
-    } finally {
-      autoQueueRef.current = false;
-      setAutoGeneratingAll(false);
-    }
-  }, [
-    blueprintKeys,
-    chaptersArr,
-    effectiveOutline.length,
-    gp,
-    hasPendingBlueprint,
-    isGeneratingGlobal,
-    onGenerate,
-    project,
-    state?.introduction?.status,
-    state?.proposal?.status,
-  ]);
-
-  // Prop legado conservado por compatibilidad con App.tsx.
-  // V14.2 usa la cola local porque la implementación anterior podía detenerse tras un capítulo.
-  void _onGenerateRemaining;
+  // GENELIBROS_10_10_DERIVED_COMPLETION
+  // Derivado del contenido persistido: sobrevive a recargas sin cambiar el esquema de Supabase.
+  const bookCompleted =
+    blueprintDone.total > 2 &&
+    blueprintDone.done === blueprintDone.total;
 
   const totalChapterWords = useMemo(() => {
     let total = 0;
@@ -674,13 +592,13 @@ const GenerationDashboard = function GenerationDashboard({
 
               <button
                 type="button"
-                onClick={() => void handleAutogenerateAll()}
-                disabled={autoGeneratingAll || isGeneratingGlobal || !hasPendingBlueprint}
+                onClick={() => onGenerateRemaining()}
+                disabled={isGeneratingGlobal || !hasPendingBlueprint}
                 className={btnPrimary}
                 title="Autogenera lo pendiente (propuesta, intro y todos los capítulos)"
               >
                 <RocketIcon className="w-5 h-5" />
-                {autoGeneratingAll ? "Generando libro…" : "Autogenerar todo"}
+                {isGeneratingGlobal ? "Generando libro…" : "Autogenerar todo"}
               </button>
             </div>
           </div>
@@ -745,7 +663,7 @@ const GenerationDashboard = function GenerationDashboard({
                 status={(gp?.proposal || "pending") as Status}
                 words={proposalWords}
                 selected={selectedKey === "proposal"}
-                disabled={isGeneratingGlobal || autoGeneratingAll}
+                disabled={isGeneratingGlobal}
                 onSelect={() => setSelectedKey("proposal")}
                 onAction={() => onGenerate("GENERATE_PROPOSAL")}
                 theme={s}
@@ -757,7 +675,7 @@ const GenerationDashboard = function GenerationDashboard({
                 status={(gp?.intro || "pending") as Status}
                 words={introWords}
                 selected={selectedKey === "intro"}
-                disabled={isGeneratingGlobal || autoGeneratingAll}
+                disabled={isGeneratingGlobal}
                 onSelect={() => setSelectedKey("intro")}
                 onAction={() => onGenerate("GENERATE_INTRODUCTION")}
                 theme={s}
@@ -793,7 +711,7 @@ const GenerationDashboard = function GenerationDashboard({
                     status={st}
                     words={words}
                     selected={selectedKey === key}
-                    disabled={isGeneratingGlobal || autoGeneratingAll}
+                    disabled={isGeneratingGlobal}
                     onSelect={() => setSelectedKey(key)}
                     onAction={() => onGenerate("GENERATE_CHAPTER", n)}
                     theme={s}
@@ -802,10 +720,15 @@ const GenerationDashboard = function GenerationDashboard({
               })}
             </div>
 
-            {!hasPendingBlueprint ? (
-              <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5 text-emerald-200">
-                <CheckCircleIcon className="w-6 h-6" />
-                Todo el blueprint está completado.
+            {bookCompleted ? (
+              <div className="flex items-center gap-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 text-emerald-100">
+                <CheckCircleIcon className="w-7 h-7 shrink-0" />
+                <div>
+                  <div className="font-black tracking-wide">✅ LIBRO TERMINADO</div>
+                  <div className="mt-1 text-sm text-emerald-100/80">
+                    {effectiveOutline.length}/{effectiveOutline.length} capítulos · {totalBookWords.toLocaleString()} palabras · Guardado. Puedes seguir editándolo.
+                  </div>
+                </div>
               </div>
             ) : null}
           </div>
