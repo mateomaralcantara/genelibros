@@ -1989,6 +1989,9 @@ const targetWords =
 
   const handleGenerateSection = useCallback((action: string, chapterNum?: number) => generateSectionCore(action, chapterNum), [generateSectionCore]);
 
+  // GENELIBROS_10_10_SINGLE_ORCHESTRATOR
+  // Único orquestador del libro completo: propuesta -> introducción -> capítulos.
+  // Reintenta fallos transitorios y solo declara terminado cuando no queda nada pendiente.
   const handleGenerateRemaining = useCallback(async () => {
     if (globalGenLockRef.current || anyGenerating) return;
     globalGenLockRef.current = true;
@@ -2025,9 +2028,7 @@ const targetWords =
         0
       ) || 0;
 
-      for (let n = 1; n <= chapterCountHint; n += 1) {
-        numbers.add(n);
-      }
+      for (let n = 1; n <= chapterCountHint; n += 1) numbers.add(n);
 
       return Array.from(numbers).sort((a, b) => a - b);
     };
@@ -2037,9 +2038,7 @@ const targetWords =
       const key = `chap-${chapterNumber}`;
       const progress = (((project as any)?.generation_progress ?? state?.generation_progress ?? {}) as AnyRecord) || {};
 
-      if (String(progress?.[key] ?? "").toLowerCase() === "completed") {
-        return true;
-      }
+      if (String(progress?.[key] ?? "").toLowerCase() === "completed") return true;
 
       const chapter = ensureArray<any>(state?.chapters, []).find(
         (item: any) => Number(item?.chapter_number ?? 0) === chapterNumber
@@ -2051,32 +2050,57 @@ const targetWords =
       );
     };
 
+    const runWithRetry = async (
+      action: string,
+      chapterNum: number | undefined,
+      label: string
+    ): Promise<boolean> => {
+      const maxAttempts = 2;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const ok = await generateSectionCore(action, chapterNum, { bypassLock: true });
+        if (ok) return true;
+
+        if (attempt < maxAttempts) {
+          console.warn(`[GENELIBROS 10/10] Reintentando ${label} (${attempt + 1}/${maxAttempts})`);
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 700 * attempt));
+        }
+      }
+
+      console.error(`[GENELIBROS 10/10] Falló definitivamente: ${label}`);
+      return false;
+    };
+
     try {
       let current = getFresh();
       if (!current) return;
 
+      console.log("[GENELIBROS 10/10] FULL BOOK QUEUE START", { projectId: current.id });
+
       if (ensureString((current.state as any)?.proposal?.status, "PENDING") !== "COMPLETED") {
-        const ok = await generateSectionCore("GENERATE_PROPOSAL", undefined, { bypassLock: true });
-        if (!ok) return;
+        const ok = await runWithRetry("GENERATE_PROPOSAL", undefined, "propuesta");
+        if (!ok) {
+          setError("No se pudo completar la propuesta editorial. Pulsa Autogenerar todo para reanudar.");
+          return;
+        }
       }
 
       current = getFresh();
       if (!current) return;
 
       if (ensureString((current.state as any)?.introduction?.status, "PENDING") !== "COMPLETED") {
-        const ok = await generateSectionCore("GENERATE_INTRODUCTION", undefined, { bypassLock: true });
-        if (!ok) return;
+        const ok = await runWithRetry("GENERATE_INTRODUCTION", undefined, "introducción");
+        if (!ok) {
+          setError("No se pudo completar la introducción. Pulsa Autogenerar todo para reanudar.");
+          return;
+        }
       }
 
       current = getFresh();
       if (!current) return;
 
       const chapterNumbers = getChapterNumbers(current);
-
-      console.log("[V14.3] FULL BOOK APP QUEUE START", {
-        projectId: current.id,
-        chapters: chapterNumbers,
-      });
+      const failed = new Set<number>();
 
       for (const chapterNumber of chapterNumbers) {
         current = getFresh();
@@ -2084,21 +2108,36 @@ const targetWords =
 
         if (isChapterCompleted(current, chapterNumber)) continue;
 
-        const ok = await generateSectionCore(
-          "GENERATE_CHAPTER",
-          chapterNumber,
-          { bypassLock: true }
-        );
-
-        if (!ok) {
-          console.warn(
-            `[V14.3] Capítulo ${chapterNumber} falló; la cola continúa con el siguiente.`
-          );
-          continue;
-        }
+        const ok = await runWithRetry("GENERATE_CHAPTER", chapterNumber, `capítulo ${chapterNumber}`);
+        if (!ok) failed.add(chapterNumber);
       }
 
-      console.log("[V14.3] FULL BOOK APP QUEUE END");
+      current = getFresh();
+      if (!current) return;
+
+      const missing = chapterNumbers.filter(
+        (chapterNumber) => !isChapterCompleted(current as Project, chapterNumber)
+      );
+      const proposalReady =
+        ensureString((current.state as any)?.proposal?.status, "PENDING") === "COMPLETED";
+      const introReady =
+        ensureString((current.state as any)?.introduction?.status, "PENDING") === "COMPLETED";
+
+      if (!proposalReady || !introReady || missing.length > 0 || failed.size > 0) {
+        const unresolved = Array.from(new Set([...missing, ...failed])).sort((a, b) => a - b);
+        setError(
+          unresolved.length
+            ? `Libro incompleto. Faltan capítulos: ${unresolved.join(", ")}. Pulsa Autogenerar todo para reanudar.`
+            : "Libro incompleto. Pulsa Autogenerar todo para reanudar."
+        );
+        return;
+      }
+
+      console.log("[GENELIBROS 10/10] LIBRO TERMINADO", {
+        projectId: current.id,
+        chapters: chapterNumbers.length,
+      });
+      setError(null);
     } finally {
       setIsLoading(false);
       globalGenLockRef.current = false;
