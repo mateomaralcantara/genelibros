@@ -29,6 +29,9 @@ jobs:
       - name: Synchronize package-lock
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
+      - name: Repair audited transitive dependencies
+        run: npm audit fix --package-lock-only --ignore-scripts --no-audit --no-fund
+
       - name: Clean install from synchronized lock
         run: npm ci --no-audit --no-fund
 
