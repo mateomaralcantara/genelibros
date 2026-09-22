@@ -78,7 +78,9 @@
     "blueprint:verify": "node scripts/blueprint-recovery-v1-tests.mjs",
     "genelibros:book": "node scripts/run-genelibros-book-final-v1.mjs",
     "outsider:demo:test": "node scripts/outsider-demo-tests.mjs",
-    "genelibros:final:verify": "node scripts/genelibros-final-release-gate.mjs"
+    "genelibros:final:verify": "node scripts/genelibros-final-release-gate.mjs",
+    "genelibros:10:test": "node scripts/genelibros-10-10-tests.mjs",
+    "genelibros:10:verify": "npm run genelibros:10:test && npm run genelibros:final:verify"
   },
   "dependencies": {
     "@google/genai": "^1.30.0",

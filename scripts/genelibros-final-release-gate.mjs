@@ -59,6 +59,7 @@ const requiredFiles = [
   "scripts/blueprint-recovery-v1.mjs",
   "scripts/blueprint-recovery-v1-tests.mjs",
   "scripts/run-genelibros-book-final-v1.mjs",
+  "scripts/genelibros-10-10-tests.mjs",
   "scripts/deep-production-v1-contract.mjs",
   "scripts/run-deep-production-v1.mjs",
   "scripts/run-deep-production-repair-v1.mjs",
@@ -141,6 +142,7 @@ runNode("scripts/deep-work-credit-guard-tests.mjs");
 runNode("scripts/deep-production-v1-tests.mjs");
 runNode("scripts/deep-production-book-v1-tests.mjs");
 runNode("scripts/deep-production-book-universal-v1-tests.mjs");
+runNode("scripts/genelibros-10-10-tests.mjs");
 
 runNpm(["run", "typecheck"]);
 runNpm(["run", "build"]);
