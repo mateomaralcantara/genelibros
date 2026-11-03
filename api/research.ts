@@ -1,3 +1,6 @@
+import { requireUserOrWorker } from "../src/server/request-auth";
+import { safeFetchText } from "../src/server/safe-fetch";
+
 type ResearchSource = {
   title: string;
   url: string;
@@ -28,25 +31,24 @@ function stripHtml(html: string): string {
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
 function estimateReliability(url: string): number {
   const value = String(url || "").toLowerCase();
 
-  if (/\\.gov|gob\\.do|who\\.int|worldbank\\.org|imf\\.org|un\\.org|oecd\\.org/.test(value)) return 9;
-  if (/\\.edu|universidad|research|journal|scielo|jstor|doi\\.org/.test(value)) return 8.5;
+  if (/\.gov|gob\.do|who\.int|worldbank\.org|imf\.org|un\.org|oecd\.org/.test(value)) return 9;
+  if (/\.edu|universidad|research|journal|scielo|jstor|doi\.org/.test(value)) return 8.5;
   if (/bbc|reuters|apnews|nytimes|elpais|listindiario|diariolibre/.test(value)) return 7.5;
   if (/wikipedia/.test(value)) return 6.5;
-  if (/facebook|instagram|tiktok|youtube|x\\.com|twitter/.test(value)) return 4;
+  if (/facebook|instagram|tiktok|youtube|x\.com|twitter/.test(value)) return 4;
 
   return 6;
 }
 
 async function extractHtml(url: string): Promise<ResearchSource> {
-  const response = await fetch(url, {
-    method: "GET",
+  const response = await safeFetchText(url, {
     headers: {
       "user-agent": "BestSellerAI-ResearchBot/1.0",
       "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -57,11 +59,11 @@ async function extractHtml(url: string): Promise<ResearchSource> {
     throw new Error("No se pudo leer la fuente: " + response.status);
   }
 
-  const html = await response.text();
+  const html = response.text;
 
   const title =
     html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
-      ?.replace(/\\s+/g, " ")
+      ?.replace(/\s+/g, " ")
       ?.trim() || url;
 
   return {
@@ -119,7 +121,7 @@ function extractFactsFromSources(sources: ResearchSource[]): ResearchFact[] {
 
   for (const source of sources) {
     const sentences = source.extracted_text
-      .split(/(?<=[.!?])\\s+/)
+      .split(/(?<=[.!?])\s+/)
       .map((x) => x.trim())
       .filter((x) => x.length >= 80 && x.length <= 320)
       .slice(0, 8);
@@ -154,6 +156,13 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    await requireUserOrWorker(req);
+  } catch (error: any) {
+    const status = typeof error?.statusCode === "number" ? error.statusCode : 401;
+    return res.status(status).json({ ok: false, error: status === 401 ? "Unauthorized" : "Server auth misconfigured" });
+  }
+
+  try {
     const body =
       typeof req.body === "string"
         ? JSON.parse(req.body || "{}")
@@ -162,7 +171,7 @@ export default async function handler(req: any, res: any) {
     const query = String(body.query || body.topic || "").trim();
 
     const urls = Array.isArray(body.urls)
-      ? body.urls.map(String).filter(Boolean)
+      ? body.urls.map(String).filter(Boolean).slice(0, 10)
       : [];
 
     const maxSources = Math.max(1, Math.min(10, Number(body.maxSources || 5) || 5));
@@ -212,14 +221,14 @@ export default async function handler(req: any, res: any) {
           "Tipo: " + source.source_type,
           "Confiabilidad: " + source.reliability_score + "/10",
           "Extracto: " + source.extracted_text.slice(0, 1200),
-        ].join("\\n")
+        ].join("\n")
       ),
       "",
       "HECHOS EXTRAÍDOS:",
       ...facts.slice(0, 30).map((fact) =>
         "- [" + fact.status + "] " + fact.claim
       ),
-    ].join("\\n");
+    ].join("\n");
 
     return res.status(200).json({
       ok: true,
@@ -242,9 +251,10 @@ export default async function handler(req: any, res: any) {
           : null,
     });
   } catch (error: any) {
+    console.error("[research] failed", error);
     return res.status(500).json({
       ok: false,
-      error: String(error?.message || error),
+      error: "No se pudo completar la investigación.",
     });
   }
 }
