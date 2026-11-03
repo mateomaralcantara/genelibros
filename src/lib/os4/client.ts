@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { authHeaders, supabase } from "../supabase";
 import type {
   Os4AgentName,
   Os4AgentResponse,
@@ -62,7 +62,7 @@ export async function runOs4Research(args: {
 }> {
   const response = await fetch("/api/research", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({
       query: args.query,
       urls: args.urls || [],

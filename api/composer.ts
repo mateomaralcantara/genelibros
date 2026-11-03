@@ -96,6 +96,7 @@ const ELITE_COMPOSER_10_LIVE_RUNTIME = {
 } as const;
 
 import { GoogleGenAI } from '@google/genai';
+import { requireUserOrWorker } from '../src/server/request-auth';
 
 /**
  * Vercel Serverless Function: POST /api/composer
@@ -372,16 +373,6 @@ async function readJsonBody(req: any): Promise<any> {
   return JSON.parse(raw);
 }
 
-function enforceSecret(req: any) {
-  const secret = process.env.COMPOSER_SHARED_SECRET;
-  if (!secret) return; // si no lo configuras, no bloquea (pero recomendado configurarlo)
-  const got = req.headers?.['x-composer-secret'];
-  if (!got || got !== secret) {
-    const err: any = new Error('Unauthorized');
-    err.statusCode = 401;
-    throw err;
-  }
-}
 
 
 
@@ -720,8 +711,8 @@ export default async function handler(req: any, res: any) {
   if (!apiKey) return res.status(500).json({ error: 'Missing GEMINI_API_KEY in server env' });
 
   try {
-    // ✅ Protege el endpoint (evita que te quemen cuota)
-    enforceSecret(req);
+    // Protege el endpoint: solo usuarios autenticados o workers con secreto.
+    await requireUserOrWorker(req);
 
     const contentType = String(req.headers?.['content-type'] ?? '');
     // No lo hacemos súper estricto, pero ayuda a evitar body raro

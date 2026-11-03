@@ -745,7 +745,10 @@ async function runResearchQuery(
 
   const response = await fetch(`${base}/api/research`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": String(process.env.OS4_WORKER_SECRET || "").trim(),
+    },
     body: JSON.stringify({ query, urls, maxSources }),
   });
 

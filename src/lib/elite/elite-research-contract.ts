@@ -1,3 +1,5 @@
+import { authHeaders } from "../supabase";
+
 export type EliteResearchSource = {
   id?: string;
   title?: string;
@@ -128,6 +130,7 @@ export async function eliteResearchSearchClient(args: {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      ...(await authHeaders()),
     },
     body: JSON.stringify({
       query: args.query,

@@ -8,6 +8,7 @@
 // - Si dossier devuelve JSON inválido: se intenta reparación local y si falla, REPAIR con Gemini (barato).
 // - Retry inteligente para 429/503 y fallback de modelos.
 
+import { authHeaders } from "./supabase";
 import type { ComposerTask } from "./types.local";
 import type { Project } from "../../types";
 
@@ -770,7 +771,7 @@ export async function callComposer(opts: ComposerCallOpts): Promise<EngineResult
   const endpoint = opts.endpoint ?? "/api/composer";
   const r = await fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ task: opts.task, state: opts.state, model: opts.model }),
   });
 
