@@ -144,6 +144,8 @@ runNode("scripts/deep-production-book-v1-tests.mjs");
 runNode("scripts/deep-production-book-universal-v1-tests.mjs");
 runNode("scripts/genelibros-10-10-tests.mjs");
 
+runNode("scripts/api-runtime-load-test.mjs");
+
 runNpm(["run", "typecheck"]);
 runNpm(["run", "build"]);
 
@@ -161,6 +163,7 @@ console.log("================================================");
 console.log({
   llmCalls: 0,
   providerCalls: 0,
+  apiRuntimeLoad: "PASS",
   typecheck: "PASS",
   build: "PASS",
   committedWhitespace: "PASS",

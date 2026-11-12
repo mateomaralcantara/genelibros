@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { auditManuscript } from "../../server/refinery-runtime";
+import { auditManuscript } from "../../server/refinery-runtime.js";
 import type {
   ManuscriptAuditMode,
   ManuscriptChapterInput,
