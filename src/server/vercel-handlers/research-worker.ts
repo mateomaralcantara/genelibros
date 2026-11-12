@@ -32,7 +32,7 @@ import {
 } from "../../server/research-intelligence-runtime.js";
 
 export const maxDuration = 300;
-const SUPABASE_URL=process.env.SUPABASE_URL||"";
+const SUPABASE_URL=process.env.SUPABASE_URL||process.env.VITE_SUPABASE_URL||"";
 const SUPABASE_SERVICE_ROLE_KEY=process.env.SUPABASE_SERVICE_ROLE_KEY||"";
 const WORKER_SECRET=process.env.RESEARCH_WORKER_SECRET||"";
 const json=(res:VercelResponse,status:number,body:unknown)=>res.status(status).json(body);
