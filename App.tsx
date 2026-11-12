@@ -14,7 +14,6 @@ import { PenSquareIcon, RocketIcon, BookOpenIcon } from "./components/Icons";
 
 import { supabase } from "./src/lib/supabase";
 import {
-  getSession,
   listProjects,
   createProject,
   getProjectFull,
@@ -46,11 +45,12 @@ import {
 
 import { callComposer, autoExtendChapterDev } from "./src/lib/gemini";
 import type { ComposerTask } from "./src/lib/types.local";
-import { AuthScreen, AuthMode } from "./components/AuthGate";
+import { AuthScreen } from "./components/AuthGate";
 import { AccessProcessingScreen } from "./components/AccessProcessingScreen";
 import { DeviceSessionScreen } from "./components/DeviceSessionScreen";
 import { DEV_SYSTEM_PROMPT } from "./src/lib/devSystemPrompt";
 import { useDeviceSession } from "./src/hooks/useDeviceSession";
+import { useAccessGate } from "./src/hooks/useAccessGate";
 import {
   buildFallbackOutline,
   cleanSeedForOutlineContext,
@@ -78,22 +78,6 @@ const initialWelcomeMessage: ChatMessage = {
     "¡Bienvenido! Soy **BestSeller**. Para empezar, cuéntame de qué quieres que trate tu libro o dime un título.",
 };
 
-type AccessProfile = {
-  email: string;
-  has_access: boolean;
-  full_name?: string | null;
-  phone?: string | null;
-};
-
-type AccessRequest = {
-  id: string;
-  status: string;
-  created_at?: string;
-};
-
-
-
-
 const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -103,23 +87,39 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [autostartSignal, setAutostartSignal] = useState(0);
 
-  // auth
-  const [session, setSession] = useState<any>(null);
-  const [authMode, setAuthMode] = useState<AuthMode>("signin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  // intake (signup)
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authNotice, setAuthNotice] = useState<string | null>(null);
-
-  // approval gate
-  const [profile, setProfile] = useState<AccessProfile | null>(null);
-  const [request, setRequest] = useState<AccessRequest | null>(null);
-  const [gateBusy, setGateBusy] = useState(false);
+  // acceso: sesión, entrada/registro y aprobación manual
+  const {
+    session,
+    profile,
+    request,
+    gateBusy,
+    authMode,
+    setAuthMode,
+    email,
+    setEmail,
+    password,
+    setPassword,
+    fullName,
+    setFullName,
+    phone,
+    setPhone,
+    authBusy,
+    authNotice,
+    setAuthNotice,
+    refreshApprovalStatus,
+    handleSignIn,
+    handleSignUp,
+  } = useAccessGate({
+    setError,
+    onSignedOut: () => {
+      resetDeviceState();
+      projectsRef.current = [];
+      setProjects([]);
+      setActiveProjectId(null);
+      setMessages([initialWelcomeMessage]);
+      setError(null);
+    },
+  });
 
   // device/session gate (1 cuenta = 1 dispositivo activo)
   const {
@@ -193,159 +193,6 @@ const App: React.FC = () => {
     },
     [updateProjectById]
   );
-
-  /* -------------------------- session sync -------------------------- */
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const s = await getSession();
-        setSession(s);
-      } catch (e) {
-        setError(normalizeError(e));
-      }
-    })();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-
-      if (!newSession) {
-        setProfile(null);
-        setRequest(null);
-        resetDeviceState();
-        projectsRef.current = [];
-        setProjects([]);
-        setActiveProjectId(null);
-        setMessages([initialWelcomeMessage]);
-        setError(null);
-        setAuthNotice(null);
-      }
-    });
-
-    return () => {
-      sub?.subscription?.unsubscribe();
-    };
-  }, []);
-
-  /* -------------------------- approval gate -------------------------- */
-
-  const refreshApprovalStatus = useCallback(async () => {
-    const uid = session?.user?.id ?? null;
-    const em = session?.user?.email ?? "";
-    if (!uid) return;
-
-    setGateBusy(true);
-    try {
-      // IMPORTANTE:
-      // El cliente NO debe hacer upsert con has_access:false cuando el profile ya existe.
-      // Si lo hace, puede pisar o bloquear una aprobación manual.
-      let { data: pData, error: pErr } = await supabase
-        .from("profiles")
-        .select("email,has_access,full_name,phone")
-        .eq("user_id", uid)
-        .maybeSingle();
-
-      if (pErr) throw pErr;
-
-      if (!pData) {
-        const { error: insertProfileErr } = await supabase.from("profiles").insert({
-          user_id: uid,
-          email: em,
-          full_name: fullName.trim() || null,
-          phone: phone.trim() || null,
-          // NO mandamos has_access desde el cliente.
-          // La DB lo deja en false por default y solo el admin/backend lo cambia a true.
-        });
-
-        if (insertProfileErr) throw insertProfileErr;
-
-        const refreshed = await supabase
-          .from("profiles")
-          .select("email,has_access,full_name,phone")
-          .eq("user_id", uid)
-          .maybeSingle();
-
-        if (refreshed.error) throw refreshed.error;
-        pData = refreshed.data;
-      } else {
-        const profilePatch: Record<string, string | null> = {};
-
-        if (em && em !== (pData as any).email) profilePatch.email = em;
-        if (fullName.trim() && fullName.trim() !== ((pData as any).full_name ?? "")) profilePatch.full_name = fullName.trim();
-        if (phone.trim() && phone.trim() !== ((pData as any).phone ?? "")) profilePatch.phone = phone.trim();
-
-        if (Object.keys(profilePatch).length > 0) {
-          const { error: updateProfileErr } = await supabase
-            .from("profiles")
-            .update(profilePatch)
-            .eq("user_id", uid);
-
-          if (updateProfileErr) throw updateProfileErr;
-
-          const refreshed = await supabase
-            .from("profiles")
-            .select("email,has_access,full_name,phone")
-            .eq("user_id", uid)
-            .maybeSingle();
-
-          if (refreshed.error) throw refreshed.error;
-          pData = refreshed.data;
-        }
-      }
-
-      const hasAccess = Boolean((pData as any)?.has_access);
-
-      setProfile({
-        email: ensureString((pData as any)?.email, em),
-        has_access: hasAccess,
-        full_name: (pData as any)?.full_name ?? null,
-        phone: (pData as any)?.phone ?? null,
-      });
-
-      const { data: rData, error: rErr } = await supabase
-        .from("access_requests")
-        .select("id,status,created_at")
-        .eq("user_id", uid)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (rErr) throw rErr;
-
-      if (!rData?.[0] && !hasAccess) {
-        const { error: insertRequestErr } = await supabase.from("access_requests").insert({
-          user_id: uid,
-          email: em,
-          full_name: fullName.trim() || ((pData as any)?.full_name ?? null),
-          phone: phone.trim() || ((pData as any)?.phone ?? null),
-          status: "PENDING",
-        });
-
-        if (insertRequestErr) throw insertRequestErr;
-
-        const { data: r2, error: r2Err } = await supabase
-          .from("access_requests")
-          .select("id,status,created_at")
-          .eq("user_id", uid)
-          .order("created_at", { ascending: false })
-          .limit(1);
-
-        if (r2Err) throw r2Err;
-        setRequest((r2?.[0] ?? null) as any);
-      } else {
-        setRequest((rData?.[0] ?? null) as any);
-      }
-    } catch (e) {
-      setError(`Setup gate (profiles/access_requests): ${normalizeError(e)}`);
-      setProfile({ email: session?.user?.email ?? "", has_access: false });
-    } finally {
-      setGateBusy(false);
-    }
-  }, [fullName, phone, session?.user?.email, session?.user?.id]);
-
-  useEffect(() => {
-    if (!session) return;
-    refreshApprovalStatus().catch((e) => setError(normalizeError(e)));
-  }, [session, refreshApprovalStatus]);
 
   /* -------------------------- load user settings when approved -------------------------- */
 
@@ -543,110 +390,6 @@ const App: React.FC = () => {
     await insertMasterSnapshot(proj.id, proj.title, masterText);
     return masterText;
   }, []);
-
-  /* -------------------------- auth actions -------------------------- */
-
-  const handleSignIn = useCallback(async () => {
-    setError(null);
-    setAuthNotice(null);
-    setAuthBusy(true);
-    try {
-      const e = email.trim();
-      if (!e || !password) throw new Error("Escribe email y clave.");
-      const { data, error: signErr } = await supabase.auth.signInWithPassword({ email: e, password });
-      if (signErr) throw signErr;
-      setSession(data.session);
-      await refreshApprovalStatus();
-    } catch (e) {
-      setError(normalizeError(e));
-    } finally {
-      setAuthBusy(false);
-    }
-  }, [email, password, refreshApprovalStatus]);
-
-  const handleSignUp = useCallback(async () => {
-    setError(null);
-    setAuthNotice(null);
-    setAuthBusy(true);
-    try {
-      const e = email.trim();
-      const name = fullName.trim();
-      const ph = phone.trim();
-
-      if (!e || !password) throw new Error("Escribe email y clave.");
-      if (!name) throw new Error("Escribe tu nombre.");
-      if (!ph) throw new Error("Escribe tu WhatsApp/teléfono.");
-
-      const { data, error: upErr } = await supabase.auth.signUp({ email: e, password });
-      if (upErr) throw upErr;
-
-      if (!data.session) throw new Error('Tu Supabase tiene "Confirm email" activado. Desactívalo para flujo inmediato.');
-
-      setSession(data.session);
-
-      const uid = data.session.user.id;
-
-      // IMPORTANTE:
-      // Nunca hacemos upsert con has_access:false desde el cliente.
-      // Si el usuario ya fue aprobado, un upsert así puede tumbar o bloquear el acceso.
-      const { data: existingProfile, error: existingProfileErr } = await supabase
-        .from("profiles")
-        .select("user_id")
-        .eq("user_id", uid)
-        .maybeSingle();
-
-      if (existingProfileErr) throw existingProfileErr;
-
-      if (!existingProfile) {
-        const { error: insertProfileErr } = await supabase.from("profiles").insert({
-          user_id: uid,
-          email: e,
-          full_name: name,
-          phone: ph,
-        });
-
-        if (insertProfileErr) throw insertProfileErr;
-      } else {
-        const { error: updateProfileErr } = await supabase
-          .from("profiles")
-          .update({
-            email: e,
-            full_name: name,
-            phone: ph,
-          })
-          .eq("user_id", uid);
-
-        if (updateProfileErr) throw updateProfileErr;
-      }
-
-      const { data: existingRequest, error: existingRequestErr } = await supabase
-        .from("access_requests")
-        .select("id")
-        .eq("user_id", uid)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (existingRequestErr) throw existingRequestErr;
-
-      if (!existingRequest?.[0]) {
-        const { error: requestErr } = await supabase.from("access_requests").insert({
-          user_id: uid,
-          email: e,
-          full_name: name,
-          phone: ph,
-          status: "PENDING",
-        });
-
-        if (requestErr) throw requestErr;
-      }
-
-      await refreshApprovalStatus();
-    } catch (e) {
-      setError(normalizeError(e));
-    } finally {
-      setAuthBusy(false);
-    }
-  }, [email, fullName, password, phone, refreshApprovalStatus]);
 
   const handleSignOut = useCallback(async () => {
     await releaseDevice();
