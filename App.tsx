@@ -49,6 +49,7 @@ import { useDeviceSession } from "./src/hooks/useDeviceSession";
 import { useAccessGate } from "./src/hooks/useAccessGate";
 import { useProjects } from "./src/hooks/useProjects";
 import { useUserSettings } from "./src/hooks/useUserSettings";
+import { BOOK_LOCKED_MESSAGE, isBookComplete } from "./src/lib/bookCompletion";
 import {
   persistProjectMeta,
   rebuildAndSnapshotMaster,
@@ -172,6 +173,18 @@ const App: React.FC = () => {
   // Proyecto recién creado que debe disparar la generación completa una sola vez.
   const fullBookAutostartRef = useRef<string | null>(null);
   const requestSeqRef = useRef<Record<string, number>>({});
+
+  // Libro terminado = cerrado. Solo se regenera si el autor lo reabre
+  // (reapertura válida durante la sesión).
+  const [reopenedBooks, setReopenedBooks] = useState<Record<string, boolean>>({});
+  const reopenedBooksRef = useRef(reopenedBooks);
+  reopenedBooksRef.current = reopenedBooks;
+  const isBookLocked = useCallback((projectId: string) => {
+    const project = projectsRef.current.find((p) => p.id === projectId);
+    return isBookComplete(project) && !reopenedBooksRef.current[projectId];
+  }, [projectsRef]);
+  const activeBookComplete = isBookComplete(activeProject);
+  const activeBookLocked = Boolean(activeProject && activeBookComplete && !reopenedBooks[activeProject.id]);
 
   const handleSignOut = useCallback(async () => {
     await releaseDevice();
@@ -330,6 +343,11 @@ const App: React.FC = () => {
     const proj = projectsRef.current.find((p) => p.id === activeProjectId);
     if (!proj) return false;
 
+    if (isBookLocked(proj.id)) {
+      setError(BOOK_LOCKED_MESSAGE);
+      return false;
+    }
+
     setError(null);
 
     const bypass = Boolean(opts?.bypassLock);
@@ -435,6 +453,7 @@ const targetWords =
     activeProjectId,
     anyGenerating,
     defaultChapterWords,
+    isBookLocked,
     persistProjectMeta,
     rebuildAndSnapshotMaster,
     setSectionProgress,
@@ -444,11 +463,25 @@ const targetWords =
 
   const handleGenerateSection = useCallback((action: string, chapterNum?: number) => generateSectionCore(action, chapterNum), [generateSectionCore]);
 
+  // Cuando un libro se termina en esta sesión, se muestra el libro completo.
+  const lastCompletionRef = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    if (!activeProject) return;
+    const id = activeProject.id;
+    const before = lastCompletionRef.current[id];
+    lastCompletionRef.current[id] = activeBookComplete;
+    if (before === false && activeBookComplete) setViewMode("book");
+  }, [activeBookComplete, activeProject]);
+
   // GENELIBROS_10_10_SINGLE_ORCHESTRATOR
   // Único orquestador del libro completo: propuesta -> introducción -> capítulos.
   // Reintenta fallos transitorios y solo declara terminado cuando no queda nada pendiente.
   const handleGenerateRemaining = useCallback(async () => {
     if (globalGenLockRef.current || anyGenerating) return;
+    if (activeProjectId && isBookLocked(activeProjectId)) {
+      setError(BOOK_LOCKED_MESSAGE);
+      return;
+    }
     globalGenLockRef.current = true;
 
     setIsLoading(true);
@@ -597,7 +630,7 @@ const targetWords =
       setIsLoading(false);
       globalGenLockRef.current = false;
     }
-  }, [activeProjectId, anyGenerating, generateSectionCore]);
+  }, [activeProjectId, anyGenerating, generateSectionCore, isBookLocked]);
 
   useEffect(() => {
     const pendingProjectId = fullBookAutostartRef.current;
@@ -879,12 +912,43 @@ const targetWords =
             {activeProject ? (
               viewMode === "plan" ? (
                 <div className="min-h-full bg-slate-950">
+                  {activeBookComplete && (
+                    <div className="mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                      <span className="font-black">
+                        {activeBookLocked ? "📕 Libro terminado y cerrado." : "✏️ Libro reabierto para cambios."}
+                      </span>
+                      <span className="text-emerald-200/80">
+                        {activeBookLocked
+                          ? "No se regenera nada salvo que lo reabras."
+                          : "Puedes regenerar secciones; ciérralo de nuevo al terminar."}
+                      </span>
+                      <span className="ml-auto flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setViewMode("book")}
+                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black hover:bg-emerald-500"
+                        >
+                          Ver libro completo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setReopenedBooks((prev) => ({ ...prev, [activeProject.id]: activeBookLocked }))
+                          }
+                          className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-black hover:bg-slate-700"
+                        >
+                          {activeBookLocked ? "Reabrir para modificar" : "Cerrar libro"}
+                        </button>
+                      </span>
+                    </div>
+                  )}
                   <GenerationDashboard
                     project={activeProject}
                     onGenerate={handleGenerateSection}
                     onGenerateRemaining={handleGenerateRemaining}
                     onOpenBookView={() => setViewMode("book")}
                     isGeneratingGlobal={isLoading || anyGenerating}
+                    locked={activeBookLocked}
                   />
                 </div>
               ) : viewMode === "os4" ? (

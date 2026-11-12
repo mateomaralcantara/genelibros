@@ -32,6 +32,8 @@ interface GenerationDashboardProps {
   onGenerateRemaining: () => void;
   onOpenBookView: () => void;
   isGeneratingGlobal: boolean;
+  /** Libro terminado y cerrado: no se puede generar hasta reabrirlo. */
+  locked?: boolean;
 }
 
 type AccentKey = "proposal" | "intro" | "chapter";
@@ -326,7 +328,9 @@ const GenerationDashboard = function GenerationDashboard({
   onGenerateRemaining,
   onOpenBookView,
   isGeneratingGlobal,
+  locked = false,
 }: GenerationDashboardProps) {
+  const generationBlocked = isGeneratingGlobal || locked;
   const { dashboard, state } = project as any;
 
   const bookTitle = useMemo(() => {
@@ -471,10 +475,10 @@ const GenerationDashboard = function GenerationDashboard({
   const selectedStatus: Status = (gp?.[selectedKey] || "pending") as Status;
 
   const canGenerateSelected = useMemo(() => {
-    if (isGeneratingGlobal) return false;
+    if (generationBlocked) return false;
     if (selectedStatus === "generating") return false;
     return true;
-  }, [isGeneratingGlobal, selectedStatus]);
+  }, [generationBlocked, selectedStatus]);
 
   const handleGenerateSelected = useCallback(() => {
     if (!canGenerateSelected) return;
@@ -593,12 +597,12 @@ const GenerationDashboard = function GenerationDashboard({
               <button
                 type="button"
                 onClick={() => onGenerateRemaining()}
-                disabled={isGeneratingGlobal || !hasPendingBlueprint}
+                disabled={generationBlocked || !hasPendingBlueprint}
                 className={btnPrimary}
                 title="Autogenera lo pendiente (propuesta, intro y todos los capítulos)"
               >
                 <RocketIcon className="w-5 h-5" />
-                {isGeneratingGlobal ? "Generando libro…" : "Autogenerar todo"}
+                {isGeneratingGlobal ? "Generando libro…" : locked ? "Libro cerrado" : "Autogenerar todo"}
               </button>
             </div>
           </div>
@@ -663,7 +667,7 @@ const GenerationDashboard = function GenerationDashboard({
                 status={(gp?.proposal || "pending") as Status}
                 words={proposalWords}
                 selected={selectedKey === "proposal"}
-                disabled={isGeneratingGlobal}
+                disabled={generationBlocked}
                 onSelect={() => setSelectedKey("proposal")}
                 onAction={() => onGenerate("GENERATE_PROPOSAL")}
                 theme={s}
@@ -675,7 +679,7 @@ const GenerationDashboard = function GenerationDashboard({
                 status={(gp?.intro || "pending") as Status}
                 words={introWords}
                 selected={selectedKey === "intro"}
-                disabled={isGeneratingGlobal}
+                disabled={generationBlocked}
                 onSelect={() => setSelectedKey("intro")}
                 onAction={() => onGenerate("GENERATE_INTRODUCTION")}
                 theme={s}
@@ -711,7 +715,7 @@ const GenerationDashboard = function GenerationDashboard({
                     status={st}
                     words={words}
                     selected={selectedKey === key}
-                    disabled={isGeneratingGlobal}
+                    disabled={generationBlocked}
                     onSelect={() => setSelectedKey(key)}
                     onAction={() => onGenerate("GENERATE_CHAPTER", n)}
                     theme={s}

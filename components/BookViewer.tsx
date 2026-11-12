@@ -614,7 +614,6 @@ const BookViewer: React.FC<BookViewerProps> = ({ project, onEditSection }) => {
   // Solo reseteamos si:
   // - Cambia el libro, o
   // - La sección actual ya no existe (key inválida), o
-  // - Si el libro es enorme, preferimos auto-abrir el primer capítulo/H2 *solo al entrar*.
   const prevProjectIdRef = useRef<string | null>(null);
   useEffect(() => {
     const projectId = (project as any)?.id ? String((project as any).id) : null;
@@ -626,10 +625,10 @@ const BookViewer: React.FC<BookViewerProps> = ({ project, onEditSection }) => {
 
     if (!projectChanged && currentKeyValid) return;
 
-    const firstChunk = baseSectionOptions.find((x) => x.key.startsWith('CHAPTER:') || x.key.startsWith('H2:'))?.key;
-    if (fullText.length > LONG_TEXT_THRESHOLD && firstChunk) setSectionKey(firstChunk);
-    else setSectionKey('FULL');
-  }, [project?.id, baseSectionOptions, fullText.length, sectionKey]);
+    // Siempre se abre el libro completo. Antes, a partir de ~220.000 caracteres
+    // (un libro de 12 capítulos de 3.000 palabras) abría solo el primer capítulo.
+    setSectionKey('FULL');
+  }, [project?.id, baseSectionOptions, sectionKey]);
 
   const displayText = useMemo(() => {
     const md = buildSectionMarkdown(project, sectionKey, fullText, autoH2Sections).trim();
@@ -729,7 +728,10 @@ const BookViewer: React.FC<BookViewerProps> = ({ project, onEditSection }) => {
         .then(({ generatePdf, generateDocx }) =>
           format === 'pdf' ? generatePdf(projectForDownload) : generateDocx(projectForDownload)
         )
-        .catch((e) => console.error('[export] No se pudo exportar el libro', e));
+        .catch((e) => {
+          console.error('[export] No se pudo exportar el libro', e);
+          window.alert(`No se pudo exportar el libro: ${e instanceof Error ? e.message : String(e)}`);
+        });
     },
     [projectForDownload]
   );
