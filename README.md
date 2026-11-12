@@ -85,11 +85,13 @@ Guía completa: **[`supabase/README.md`](supabase/README.md)**.
 
 | Migración | Qué hace |
 |---|---|
+| `00000000_base_tables.sql` | Tablas base de la app con sus políticas RLS (solo para bases nuevas) |
 | `20260525_generation_jobs.sql` | Cola de generación de capítulos |
 | `20261112_api_rate_limits.sql` | Tabla y función atómica del límite de uso |
 | `20261113_protect_profile_access.sql` | Impide que un usuario se ponga `has_access = true` |
 | `20261114_api_usage_daily_view.sql` | Vista `api_usage_daily` (consumo por usuario, 90 días) |
 | `20261115_reconcile_shared_tables.sql` | Añade columnas que falten en `generation_jobs`, `research_sources` y `subscription_plans`, y quita dos restricciones que bloqueaban la cola OS4 |
+| `20261116_profiles_has_access_default_false.sql` | Los perfiles nuevos entran sin acceso por defecto (antes `true`) |
 
 `.github/workflows/database-schema.yml` instala el esquema completo en un Postgres vacío en cada PR que toque SQL.
 
