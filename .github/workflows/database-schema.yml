@@ -1,0 +1,53 @@
+name: Database schema
+
+# Instala el esquema completo en un Postgres vacío siguiendo
+# supabase/install-order.txt y ejecuta la prueba de humo. Detecta tablas
+# duplicadas incompatibles, órdenes rotos y migraciones no idempotentes.
+
+on:
+  pull_request:
+    paths:
+      - "sql/**"
+      - "supabase/**"
+      - "device_session_gate.sql"
+      - "scripts/db-install-test.sh"
+      - ".github/workflows/database-schema.yml"
+  push:
+    branches: [main]
+    paths:
+      - "sql/**"
+      - "supabase/**"
+      - "device_session_gate.sql"
+      - "scripts/db-install-test.sh"
+      - ".github/workflows/database-schema.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Schema install test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: genelibros_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install schema and run smoke test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/genelibros_test
+        run: bash scripts/db-install-test.sh

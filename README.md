@@ -78,16 +78,20 @@ Un valor `0` en un límite desactiva esa ventana.
 
 ## Base de datos (Supabase)
 
-Ejecuta en **Supabase → SQL Editor**, en orden, los archivos de `supabase/migrations/` (son idempotentes):
+Guía completa: **[`supabase/README.md`](supabase/README.md)**.
+
+- **Base nueva:** ejecuta en el SQL Editor los archivos de `supabase/install-order.txt`, en ese orden.
+- **Base existente:** ejecuta las migraciones de `supabase/migrations/` que falten (son idempotentes):
 
 | Migración | Qué hace |
 |---|---|
-| `20260525_generation_jobs.sql` | Cola de generación |
+| `20260525_generation_jobs.sql` | Cola de generación de capítulos |
 | `20261112_api_rate_limits.sql` | Tabla y función atómica del límite de uso |
 | `20261113_protect_profile_access.sql` | Impide que un usuario se ponga `has_access = true` |
 | `20261114_api_usage_daily_view.sql` | Vista `api_usage_daily` (consumo por usuario, 90 días) |
+| `20261115_reconcile_shared_tables.sql` | Añade columnas que falten en `generation_jobs`, `research_sources` y `subscription_plans`, y quita dos restricciones que bloqueaban la cola OS4 |
 
-Los esquemas de los módulos (OS4, refinery, deep-work, research) están en `sql/`, junto a sus scripts `*-verify.sql`.
+`.github/workflows/database-schema.yml` instala el esquema completo en un Postgres vacío en cada PR que toque SQL.
 
 **Auditoría de seguridad:** `supabase/rls-audit.sql` (solo lectura) lista el estado RLS y las políticas de todas las tablas y marca las peligrosas.
 
