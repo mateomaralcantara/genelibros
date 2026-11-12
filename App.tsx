@@ -50,14 +50,7 @@ import { AuthScreen, AuthMode } from "./components/AuthGate";
 import { AccessProcessingScreen } from "./components/AccessProcessingScreen";
 import { DeviceSessionScreen } from "./components/DeviceSessionScreen";
 import { DEV_SYSTEM_PROMPT } from "./src/lib/devSystemPrompt";
-import {
-  DEVICE_STORAGE_KEY,
-  HEARTBEAT_MS,
-  IDLE_TIMEOUT_MS,
-  getDeviceLabel,
-  getOrCreateDeviceId,
-  type DeviceConflictInfo,
-} from "./src/lib/deviceSession";
+import { useDeviceSession } from "./src/hooks/useDeviceSession";
 import {
   buildFallbackOutline,
   cleanSeedForOutlineContext,
@@ -128,13 +121,18 @@ const App: React.FC = () => {
   const [request, setRequest] = useState<AccessRequest | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
 
-  // device/session gate
-  const [deviceId, setDeviceId] = useState("");
-  const [deviceAllowed, setDeviceAllowed] = useState(false);
-  const [deviceBusy, setDeviceBusy] = useState(false);
-  const [deviceNotice, setDeviceNotice] = useState<string | null>(null);
-  const [deviceError, setDeviceError] = useState<string | null>(null);
-  const [otherDevice, setOtherDevice] = useState<DeviceConflictInfo | null>(null);
+  // device/session gate (1 cuenta = 1 dispositivo activo)
+  const {
+    deviceAllowed,
+    deviceBusy,
+    deviceNotice,
+    deviceError,
+    otherDevice,
+    retry,
+    enterHere,
+    releaseDevice,
+    resetDeviceState,
+  } = useDeviceSession(session?.user?.id, Boolean(profile?.has_access));
 
   // global chapter setting
   const [defaultChapterWords, setDefaultChapterWords] = useState<number>(3000);
@@ -142,9 +140,6 @@ const App: React.FC = () => {
 
   // refs
   const projectsRef = useRef<Project[]>(projects);
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const deviceAutoClaimAttemptedRef = useRef(false);
   useEffect(() => {
     projectsRef.current = projects;
   }, [projects]);
@@ -217,12 +212,7 @@ const App: React.FC = () => {
       if (!newSession) {
         setProfile(null);
         setRequest(null);
-        deviceAutoClaimAttemptedRef.current = false;
-        setDeviceAllowed(false);
-        setDeviceBusy(false);
-        setDeviceNotice(null);
-        setDeviceError(null);
-        setOtherDevice(null);
+        resetDeviceState();
         projectsRef.current = [];
         setProjects([]);
         setActiveProjectId(null);
@@ -658,198 +648,10 @@ const App: React.FC = () => {
     }
   }, [email, fullName, password, phone, refreshApprovalStatus]);
 
-  const clearDeviceTimers = useCallback(() => {
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = null;
-    }
-
-    if (heartbeatTimerRef.current) {
-      clearInterval(heartbeatTimerRef.current);
-      heartbeatTimerRef.current = null;
-    }
-  }, []);
-
   const handleSignOut = useCallback(async () => {
-    clearDeviceTimers();
-
-    try {
-      const currentDeviceId = deviceId || (typeof window !== "undefined" ? window.localStorage.getItem(DEVICE_STORAGE_KEY) || "" : "");
-      if (currentDeviceId) {
-        await supabase.rpc("revoke_my_device_session", {
-          p_device_id: currentDeviceId,
-        });
-      }
-    } catch {
-      // Si la RPC no existe o falla, igual cerramos Auth.
-    }
-
-    deviceAutoClaimAttemptedRef.current = false;
-    setDeviceAllowed(false);
-    setDeviceBusy(false);
-    setDeviceNotice(null);
-    setDeviceError(null);
-    setOtherDevice(null);
+    await releaseDevice();
     await supabase.auth.signOut();
-  }, [clearDeviceTimers, deviceId]);
-
-
-  /* -------------------------- device/session gate -------------------------- */
-
-  const claimDeviceSession = useCallback(async (opts?: { force?: boolean }) => {
-    if (!session?.user?.id) return false;
-    if (!profile?.has_access) return false;
-
-    const force = Boolean(opts?.force);
-    const nextDeviceId = deviceId || getOrCreateDeviceId();
-
-    setDeviceId(nextDeviceId);
-    setDeviceBusy(true);
-    setDeviceError(null);
-    setDeviceNotice(null);
-
-    try {
-      if (!force) {
-        const { data: activeData, error: activeErr } = await supabase.rpc("get_active_device_session", {
-          p_device_id: nextDeviceId,
-        });
-
-        if (activeErr) throw activeErr;
-
-        const row = Array.isArray(activeData) ? activeData[0] : activeData;
-        const hasOther = Boolean((row as any)?.has_other_active_device);
-
-        if (hasOther) {
-          setOtherDevice({
-            active_device_label: (row as any)?.active_device_label ?? null,
-            active_last_seen_at: (row as any)?.active_last_seen_at ?? null,
-          });
-          setDeviceAllowed(false);
-          return false;
-        }
-      }
-
-      const { error: claimErr } = await supabase.rpc("claim_device_session", {
-        p_device_id: nextDeviceId,
-        p_device_label: getDeviceLabel(),
-        p_user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
-      });
-
-      if (claimErr) throw claimErr;
-
-      setOtherDevice(null);
-      setDeviceAllowed(true);
-      setDeviceNotice(force ? "Sesión anterior cerrada. Entraste en este dispositivo." : null);
-      return true;
-    } catch (e) {
-      setDeviceAllowed(false);
-      setDeviceError(`Device gate: ${normalizeError(e)}`);
-      return false;
-    } finally {
-      setDeviceBusy(false);
-    }
-  }, [deviceId, profile?.has_access, session?.user?.id]);
-
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    if (!profile?.has_access) return;
-    if (deviceAllowed) return;
-    if (deviceBusy) return;
-    if (deviceAutoClaimAttemptedRef.current) return;
-
-    deviceAutoClaimAttemptedRef.current = true;
-    claimDeviceSession().catch((e) => setDeviceError(`Device gate: ${normalizeError(e)}`));
-  }, [claimDeviceSession, deviceAllowed, deviceBusy, profile?.has_access, session?.user?.id]);
-
-  useEffect(() => {
-    if (!session?.user?.id || !profile?.has_access || !deviceAllowed || !deviceId) return;
-
-    const signOutForInactivity = async () => {
-      clearDeviceTimers();
-
-      try {
-        await supabase.rpc("revoke_my_device_session", {
-          p_device_id: deviceId,
-        });
-      } catch {
-        // Igual cerramos sesión local.
-      }
-
-      setDeviceAllowed(false);
-      setDeviceNotice(null);
-      setOtherDevice(null);
-      setDeviceError("Sesión cerrada por 30 minutos sin actividad.");
-      await supabase.auth.signOut();
-    };
-
-    const resetIdleTimer = () => {
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => {
-        signOutForInactivity().catch(() => {});
-      }, IDLE_TIMEOUT_MS);
-    };
-
-    const events: Array<keyof WindowEventMap> = ["mousemove", "keydown", "click", "scroll", "touchstart"];
-
-    resetIdleTimer();
-
-    for (const eventName of events) {
-      window.addEventListener(eventName, resetIdleTimer, { passive: true });
-    }
-
-    const onVisibilityChange = () => {
-      if (!document.hidden) resetIdleTimer();
-    };
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-
-    return () => {
-      for (const eventName of events) {
-        window.removeEventListener(eventName, resetIdleTimer);
-      }
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      if (idleTimerRef.current) {
-        clearTimeout(idleTimerRef.current);
-        idleTimerRef.current = null;
-      }
-    };
-  }, [clearDeviceTimers, deviceAllowed, deviceId, profile?.has_access, session?.user?.id]);
-
-  useEffect(() => {
-    if (!session?.user?.id || !profile?.has_access || !deviceAllowed || !deviceId) return;
-
-    const heartbeat = async () => {
-      try {
-        const { data, error: touchErr } = await supabase.rpc("touch_device_session", {
-          p_device_id: deviceId,
-        });
-
-        if (touchErr) throw touchErr;
-
-        if (data !== true) {
-          clearDeviceTimers();
-          setDeviceAllowed(false);
-          setDeviceError("Tu sesión venció o fue reemplazada por otro dispositivo.");
-          await supabase.auth.signOut();
-        }
-      } catch (e) {
-        setDeviceError(`Heartbeat: ${normalizeError(e)}`);
-      }
-    };
-
-    heartbeatTimerRef.current = setInterval(() => {
-      heartbeat().catch(() => {});
-    }, HEARTBEAT_MS);
-
-    heartbeat().catch(() => {});
-
-    return () => {
-      if (heartbeatTimerRef.current) {
-        clearInterval(heartbeatTimerRef.current);
-        heartbeatTimerRef.current = null;
-      }
-    };
-  }, [clearDeviceTimers, deviceAllowed, deviceId, profile?.has_access, session?.user?.id]);
+  }, [releaseDevice]);
 
 
   /* -------------------------- app UI actions -------------------------- */
@@ -1429,14 +1231,8 @@ const targetWords =
         error={deviceError}
         notice={deviceNotice}
         otherDevice={otherDevice}
-        onEnterHere={() => {
-          deviceAutoClaimAttemptedRef.current = false;
-          claimDeviceSession({ force: true }).catch((e) => setDeviceError(normalizeError(e)));
-        }}
-        onRefresh={() => {
-          deviceAutoClaimAttemptedRef.current = false;
-          claimDeviceSession().catch((e) => setDeviceError(normalizeError(e)));
-        }}
+        onEnterHere={enterHere}
+        onRefresh={retry}
         onSignOut={handleSignOut}
       />
     );
