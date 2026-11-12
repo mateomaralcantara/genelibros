@@ -20,6 +20,7 @@
     "elite:final10": "node scripts/final-live-10-integration.mjs && npm test && npm run build && node scripts/market-perfection-score.mjs --full",
     "elite:research": "echo Usa POST /api/research con query urls maxSources",
     "typecheck": "tsc --noEmit",
+    "test:api-load": "node scripts/api-runtime-load-test.mjs",
     "audit:high": "npm audit --audit-level=high",
     "elite:prod10": "npm test && npm run build && npm run typecheck && npm run audit:high && node scripts/market-perfection-score.mjs --full",
     "os4:test": "node scripts/os4-tests.mjs",
