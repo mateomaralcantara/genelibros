@@ -455,15 +455,21 @@ function buildSectionMarkdown(project: Project, key: string, fullText: string, a
 }
 
 const BookViewer: React.FC<BookViewerProps> = ({ project, onEditSection }) => {
-  // Texto “final” = expediente reconstruido vs master_document (elige el más completo)
+  // Texto "final": el libro reconstruido con las secciones actuales (propuesta,
+  // introducción y TODOS los capítulos generados). Antes se elegía el más largo
+  // entre esto y el documento maestro guardado, y una instantánea vieja con
+  // texto repetido podía ganar y mostrar solo un par de capítulos.
+  // El maestro guardado solo se usa si el estado no tiene ninguna sección.
   const fullText = useMemo(() => {
-    const master = getMasterText(project).trim();
+    const st: any = project?.state ?? {};
+    const stateHasContent =
+      Boolean(s(st?.proposal?.text, '').trim()) ||
+      Boolean(s(st?.introduction?.text, '').trim()) ||
+      arr<any>(st?.chapters, []).some((c) => Boolean(s(c?.text, '').trim()));
+
     const dossier = buildFullDossierMarkdown(project).trim();
-
-    if (!master) return dossier;
-    if (!dossier) return master;
-
-    return dossier.length >= master.length ? dossier : master;
+    if (stateHasContent) return dossier;
+    return getMasterText(project).trim() || dossier;
   }, [project]);
 
   // Auto-splitting por H2 (fallback cuando no hay capítulos en state)

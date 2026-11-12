@@ -49,7 +49,7 @@ import { useDeviceSession } from "./src/hooks/useDeviceSession";
 import { useAccessGate } from "./src/hooks/useAccessGate";
 import { useProjects } from "./src/hooks/useProjects";
 import { useUserSettings } from "./src/hooks/useUserSettings";
-import { BOOK_LOCKED_MESSAGE, isBookComplete } from "./src/lib/bookCompletion";
+import { REGENERATE_CONFIRM_MESSAGE, generatedProgress, isBookComplete, sectionIsGenerated } from "./src/lib/bookCompletion";
 import {
   persistProjectMeta,
   rebuildAndSnapshotMaster,
@@ -174,17 +174,13 @@ const App: React.FC = () => {
   const fullBookAutostartRef = useRef<string | null>(null);
   const requestSeqRef = useRef<Record<string, number>>({});
 
-  // Libro terminado = cerrado. Solo se regenera si el autor lo reabre
-  // (reapertura válida durante la sesión).
-  const [reopenedBooks, setReopenedBooks] = useState<Record<string, boolean>>({});
-  const reopenedBooksRef = useRef(reopenedBooks);
-  reopenedBooksRef.current = reopenedBooks;
-  const isBookLocked = useCallback((projectId: string) => {
-    const project = projectsRef.current.find((p) => p.id === projectId);
-    return isBookComplete(project) && !reopenedBooksRef.current[projectId];
-  }, [projectsRef]);
+  // Lo generado queda cerrado: el panel lo muestra como listo aunque no llegue
+  // al objetivo de palabras, y solo se regenera con "Editar" + confirmación.
   const activeBookComplete = isBookComplete(activeProject);
-  const activeBookLocked = Boolean(activeProject && activeBookComplete && !reopenedBooks[activeProject.id]);
+  const dashboardProject = React.useMemo(
+    () => (activeProject ? ({ ...activeProject, generation_progress: generatedProgress(activeProject) } as Project) : null),
+    [activeProject]
+  );
 
   const handleSignOut = useCallback(async () => {
     await releaseDevice();
@@ -343,14 +339,21 @@ const App: React.FC = () => {
     const proj = projectsRef.current.find((p) => p.id === activeProjectId);
     if (!proj) return false;
 
-    if (isBookLocked(proj.id)) {
-      setError(BOOK_LOCKED_MESSAGE);
-      return false;
+    const bypass = Boolean(opts?.bypassLock);
+
+    const targetSectionId =
+      action === "GENERATE_INTRODUCTION" ? "intro"
+        : action === "GENERATE_PROPOSAL" ? "proposal"
+          : `chap-${chapterNum}`;
+    if (sectionIsGenerated(proj, targetSectionId)) {
+      // Automático ("Autogenerar todo", arranque): nunca toca lo ya generado.
+      if (bypass) return true;
+      // Manual ("Editar"): solo con confirmación explícita del autor.
+      if (!window.confirm(REGENERATE_CONFIRM_MESSAGE)) return false;
     }
 
     setError(null);
 
-    const bypass = Boolean(opts?.bypassLock);
     if (!bypass) {
       if (globalGenLockRef.current || anyGenerating) {
         setError("Ya hay una generación en curso. Termina esa y luego lanzas otra.");
@@ -453,7 +456,6 @@ const targetWords =
     activeProjectId,
     anyGenerating,
     defaultChapterWords,
-    isBookLocked,
     persistProjectMeta,
     rebuildAndSnapshotMaster,
     setSectionProgress,
@@ -478,10 +480,6 @@ const targetWords =
   // Reintenta fallos transitorios y solo declara terminado cuando no queda nada pendiente.
   const handleGenerateRemaining = useCallback(async () => {
     if (globalGenLockRef.current || anyGenerating) return;
-    if (activeProjectId && isBookLocked(activeProjectId)) {
-      setError(BOOK_LOCKED_MESSAGE);
-      return;
-    }
     globalGenLockRef.current = true;
 
     setIsLoading(true);
@@ -630,7 +628,7 @@ const targetWords =
       setIsLoading(false);
       globalGenLockRef.current = false;
     }
-  }, [activeProjectId, anyGenerating, generateSectionCore, isBookLocked]);
+  }, [activeProjectId, anyGenerating, generateSectionCore]);
 
   useEffect(() => {
     const pendingProjectId = fullBookAutostartRef.current;
@@ -914,41 +912,25 @@ const targetWords =
                 <div className="min-h-full bg-slate-950">
                   {activeBookComplete && (
                     <div className="mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                      <span className="font-black">
-                        {activeBookLocked ? "📕 Libro terminado y cerrado." : "✏️ Libro reabierto para cambios."}
-                      </span>
+                      <span className="font-black">📕 Libro terminado.</span>
                       <span className="text-emerald-200/80">
-                        {activeBookLocked
-                          ? "No se regenera nada salvo que lo reabras."
-                          : "Puedes regenerar secciones; ciérralo de nuevo al terminar."}
+                        Todo lo generado está cerrado. Para cambiar una sección, pulsa «Editar» en ella.
                       </span>
-                      <span className="ml-auto flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setViewMode("book")}
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black hover:bg-emerald-500"
-                        >
-                          Ver libro completo
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setReopenedBooks((prev) => ({ ...prev, [activeProject.id]: activeBookLocked }))
-                          }
-                          className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-black hover:bg-slate-700"
-                        >
-                          {activeBookLocked ? "Reabrir para modificar" : "Cerrar libro"}
-                        </button>
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode("book")}
+                        className="ml-auto rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black hover:bg-emerald-500"
+                      >
+                        Ver libro completo
+                      </button>
                     </div>
                   )}
                   <GenerationDashboard
-                    project={activeProject}
+                    project={dashboardProject ?? activeProject}
                     onGenerate={handleGenerateSection}
                     onGenerateRemaining={handleGenerateRemaining}
                     onOpenBookView={() => setViewMode("book")}
                     isGeneratingGlobal={isLoading || anyGenerating}
-                    locked={activeBookLocked}
                   />
                 </div>
               ) : viewMode === "os4" ? (
