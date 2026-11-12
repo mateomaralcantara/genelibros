@@ -1,6 +1,6 @@
-import { requireUserOrWorker } from "../src/server/request-auth";
-import { safeFetchText } from "../src/server/safe-fetch";
-import { applyRetryAfter, enforceQuota } from "../src/server/rate-limit";
+import { requireUserOrWorker } from "../src/server/request-auth.js";
+import { safeFetchText } from "../src/server/safe-fetch.js";
+import { applyRetryAfter, enforceQuota } from "../src/server/rate-limit.js";
 
 type ResearchSource = {
   title: string;
