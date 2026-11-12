@@ -2,7 +2,7 @@
 // ✅ Refactor "así": App pequeño, helpers en src/lib/editor.ts y src/lib/gemini.ts, UI auth en src/components/AuthGate.tsx
 // Mantiene TODO: Supabase-first + aprobación manual + generación 1 a la vez + targets globales + turbo capítulos DEV.
 
-import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Project, ChatMessage, ProjectState } from "./types";
 
 import TableOfContents from "./components/TableOfContents";
@@ -14,30 +14,18 @@ import { PenSquareIcon, RocketIcon, BookOpenIcon } from "./components/Icons";
 
 import { supabase } from "./src/lib/supabase";
 import {
-  listProjects,
   createProject,
-  getProjectFull,
-  upsertSection,
-  insertSectionVersion,
-  buildMasterServer,
-  insertMasterSnapshot,
-  updateProject,
-  deleteProject,
-  getUserSettings,
-  upsertUserSettings,
 } from "./src/data/repo";
 
 import {
   AnyRecord,
   GenerationStatus,
-  GenerationProgress,
   ensureArray,
   ensureString,
   buildOutsiderDemoOutline,
   normalizeError,
   normalizeProjectState,
   compactStateForComposer,
-  mapDbFullToProject,
   buildMasterFromState,
   recomputeGenerationProgress,
   processEngineResult,
@@ -51,6 +39,13 @@ import { DeviceSessionScreen } from "./components/DeviceSessionScreen";
 import { DEV_SYSTEM_PROMPT } from "./src/lib/devSystemPrompt";
 import { useDeviceSession } from "./src/hooks/useDeviceSession";
 import { useAccessGate } from "./src/hooks/useAccessGate";
+import { useProjects } from "./src/hooks/useProjects";
+import { useUserSettings } from "./src/hooks/useUserSettings";
+import {
+  persistProjectMeta,
+  rebuildAndSnapshotMaster,
+  upsertOneSectionFromState,
+} from "./src/data/projectPersistence";
 import {
   buildFallbackOutline,
   cleanSeedForOutlineContext,
@@ -79,8 +74,6 @@ const initialWelcomeMessage: ChatMessage = {
 };
 
 const App: React.FC = () => {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([initialWelcomeMessage]);
   const [isLoading, setIsLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"plan" | "book" | "os4">("plan");
@@ -121,6 +114,30 @@ const App: React.FC = () => {
     },
   });
 
+  // libros del usuario
+  const {
+    projects,
+    setProjects,
+    projectsRef,
+    activeProjectId,
+    setActiveProjectId,
+    activeProject,
+    anyGenerating,
+    updateProjectById,
+    setSectionProgress,
+    hydrateProject,
+    refreshList,
+    handleDeleteProject,
+    clearActiveProject,
+  } = useProjects({
+    hasAccess: Boolean(profile?.has_access),
+    setError,
+    onLegacyRepaired: (projectId) => {
+      fullBookAutostartRef.current = projectId;
+      setAutostartSignal((value) => value + 1);
+    },
+  });
+
   // device/session gate (1 cuenta = 1 dispositivo activo)
   const {
     deviceAllowed,
@@ -135,14 +152,11 @@ const App: React.FC = () => {
   } = useDeviceSession(session?.user?.id, Boolean(profile?.has_access));
 
   // global chapter setting
-  const [defaultChapterWords, setDefaultChapterWords] = useState<number>(3000);
-  const [savingSettings, setSavingSettings] = useState(false);
-
-  // refs
-  const projectsRef = useRef<Project[]>(projects);
-  useEffect(() => {
-    projectsRef.current = projects;
-  }, [projects]);
+  const { defaultChapterWords, setDefaultChapterWords, savingSettings, saveSettings } = useUserSettings({
+    enabled: Boolean(session && profile?.has_access),
+    userId: session?.user?.id,
+    setError,
+  });
 
   // single-flight generation
   const globalGenLockRef = useRef(false);
@@ -150,246 +164,6 @@ const App: React.FC = () => {
   // Proyecto recién creado que debe disparar la generación completa una sola vez.
   const fullBookAutostartRef = useRef<string | null>(null);
   const requestSeqRef = useRef<Record<string, number>>({});
-
-  const activeProject = useMemo(
-    () => projects.find((p) => p.id === activeProjectId) ?? null,
-    [projects, activeProjectId]
-  );
-
-  const anyGenerating = useMemo(() => {
-    for (const p of projects) {
-      const gp: GenerationProgress = ((p as any).generation_progress as any) || {};
-      if (Object.values(gp).some((v) => v === "generating")) return true;
-    }
-    return false;
-  }, [projects]);
-
-  const updateProjectById = useCallback((projectId: string, updater: (p: Project) => Project) => {
-    const apply = (list: Project[]) => list.map((p) => (p.id === projectId ? updater(p) : p));
-
-    // ✅ Blindaje anti-estado viejo:
-    // React puede tardar en reflejar setProjects durante generaciones en cadena.
-    // Mantener projectsRef.current sincronizado evita que "Generar restantes"
-    // use una versión vieja del proyecto y parezca borrar capítulos previos.
-    projectsRef.current = apply(projectsRef.current);
-
-    const run = () =>
-      setProjects((prev) => {
-        const next = apply(prev);
-        projectsRef.current = next;
-        return next;
-      });
-
-    if (typeof startTransition === "function") startTransition(run);
-    else run();
-  }, []);
-
-  const setSectionProgress = useCallback(
-    (projectId: string, sectionId: string, status: GenerationStatus) => {
-      updateProjectById(projectId, (p) => ({
-        ...p,
-        generation_progress: { ...(((p as any).generation_progress as AnyRecord) || {}), [sectionId]: status } as any,
-      }));
-    },
-    [updateProjectById]
-  );
-
-  /* -------------------------- load user settings when approved -------------------------- */
-
-  useEffect(() => {
-    if (!session) return;
-    if (!profile?.has_access) return;
-    (async () => {
-      try {
-        const s = await getUserSettings();
-        const v = Number((s as any)?.default_chapter_words ?? 3000) || 3000;
-        setDefaultChapterWords(Math.max(500, Math.min(20000, v)));
-      } catch {
-        setDefaultChapterWords(3000);
-      }
-    })();
-  }, [profile?.has_access, session]);
-
-  /* -------------------------- projects loading (approved only) -------------------------- */
-
-  const hydrateProject = useCallback(async (projectId: string) => {
-    const { project, sections, masterLatest } = await getProjectFull(projectId);
-    const full = mapDbFullToProject(project, sections, masterLatest);
-
-    // Migración idempotente de proyectos legacy: el dashboard debe mostrar y
-    // guardar el índice canónico, no volver a reconstruirlo desde el prompt.
-    const legacyRepair = (full as any).__legacyRepair;
-    if (legacyRepair) {
-      await updateProject(projectId, {
-        title: legacyRepair.title,
-        topic: legacyRepair.topic,
-        dossier: (full as any).dashboard ?? {},
-        outline_12: legacyRepair.outline_12,
-        continuity_pack: legacyRepair.continuity_pack,
-      });
-
-      const repairedChapters = ensureArray<any>((full as any).state?.chapters, []);
-      for (const chapter of repairedChapters) {
-        const n = Number(chapter?.chapter_number ?? 0) || 0;
-        if (!n) continue;
-        await upsertSection({
-          project_id: projectId,
-          type: "CHAPTER",
-          chapter_number: n,
-          title: ensureString(chapter?.title, `Capítulo ${n}`),
-          content: ensureString(chapter?.text, ""),
-          status: ensureString(chapter?.status, "PENDING") === "COMPLETED" ? "COMPLETED" : "PENDING",
-        });
-      }
-
-      const repairedMaster = await buildMasterServer(projectId);
-      await insertMasterSnapshot(projectId, legacyRepair.title, repairedMaster);
-      (full as any).master_document = {
-        title: legacyRepair.title,
-        text: repairedMaster,
-        chunks: repairedMaster ? [{ index: 1, total: 1, text: repairedMaster }] : [],
-      };
-      delete (full as any).__legacyRepair;
-      // La primera carga de la demo reparada continúa automáticamente con la
-      // propuesta, introducción y los 12 capítulos pendientes.
-      fullBookAutostartRef.current = projectId;
-      setAutostartSignal((value) => value + 1);
-    }
-
-    setProjects((prev) => {
-      const has = prev.some((p) => p.id === projectId);
-      const next = !has ? [full, ...prev] : prev.map((p) => (p.id === projectId ? full : p));
-      projectsRef.current = next;
-      return next;
-    });
-    return full;
-  }, []);
-
-  const refreshList = useCallback(async () => {
-    const list = await listProjects();
-    setProjects((prev) => {
-      const prevById = new Map(prev.map((p) => [p.id, p]));
-      const next: Project[] = [];
-      for (const row of list) {
-        const existing = prevById.get(row.id);
-        if (existing) next.push(existing);
-        else {
-          next.push({
-            id: row.id,
-            title: row.title,
-            state: normalizeProjectState({ project_id: row.id, book_title: row.title, book_topic: row.topic ?? "", outline_12: [] }),
-            master_document: { title: row.title, text: "", chunks: [] } as any,
-            dashboard: null,
-            generation_progress: {} as any,
-          } as any);
-        }
-      }
-      projectsRef.current = next;
-      return next;
-    });
-  }, []);
-
-  const didLoadListRef = useRef(false);
-  useEffect(() => {
-    if (!profile?.has_access) return;
-    if (didLoadListRef.current) return;
-    didLoadListRef.current = true;
-    refreshList().catch((e) => setError(normalizeError(e)));
-  }, [profile?.has_access, refreshList]);
-
-  const didAutoSelectRef = useRef(false);
-  useEffect(() => {
-    if (!profile?.has_access) return;
-    if (didAutoSelectRef.current) return;
-    if (activeProjectId) {
-      didAutoSelectRef.current = true;
-      return;
-    }
-    if (projects.length > 0) {
-      didAutoSelectRef.current = true;
-      setActiveProjectId(projects[0].id);
-    }
-  }, [activeProjectId, profile?.has_access, projects]);
-
-  useEffect(() => {
-    if (!profile?.has_access) return;
-    if (!activeProjectId) return;
-
-    const p = projects.find((x) => x.id === activeProjectId);
-    const st: any = (p as any)?.state ?? {};
-    const maybeEmpty = !p || (!ensureArray(st?.chapters, []).length && !ensureString((p as any)?.master_document?.text, "").trim());
-    if (maybeEmpty) hydrateProject(activeProjectId).catch((e) => setError(normalizeError(e)));
-  }, [activeProjectId, hydrateProject, profile?.has_access, projects]);
-
-  /* -------------------------- persistence helpers -------------------------- */
-
-  const persistProjectMeta = useCallback(async (proj: Project) => {
-    const st: any = proj.state ?? {};
-    await updateProject(proj.id, {
-      title: proj.title,
-      topic: st.book_topic ?? null,
-      audience: st.audience ?? null,
-      tone_style: st.tone_style ?? null,
-      dossier: (proj as any).dashboard ?? (st.dossier ?? {}) ?? {},
-      outline_12: st.outline_12 ?? [],
-      continuity_pack: st.continuity_pack ?? {},
-    });
-  }, []);
-
-  const upsertOneSectionFromState = useCallback(async (proj: Project, kind: "proposal" | "intro" | "chapter", chapterNum?: number) => {
-    const st: any = proj.state ?? {};
-
-    if (kind === "proposal") {
-      const text = ensureString(st?.proposal?.text, "");
-      const sid = await upsertSection({
-        project_id: proj.id,
-        type: "PROPOSAL",
-        chapter_number: null,
-        title: "Propuesta editorial",
-        content: text,
-        status: ensureString(st?.proposal?.status, "PENDING") === "COMPLETED" ? "COMPLETED" : "PENDING",
-      });
-      await insertSectionVersion(sid, text);
-      return;
-    }
-
-    if (kind === "intro") {
-      const text = ensureString(st?.introduction?.text, "");
-      const sid = await upsertSection({
-        project_id: proj.id,
-        type: "INTRODUCTION",
-        chapter_number: null,
-        title: "Introducción",
-        content: text,
-        status: ensureString(st?.introduction?.status, "PENDING") === "COMPLETED" ? "COMPLETED" : "PENDING",
-      });
-      await insertSectionVersion(sid, text);
-      return;
-    }
-
-    const n = Number(chapterNum ?? 0) || 0;
-    if (!n) return;
-
-    const ch = ensureArray<any>(st?.chapters, []).find((c: any) => Number(c?.chapter_number ?? 0) === n);
-    const title = ensureString(ch?.title, `Capítulo ${n}`);
-    const text = ensureString(ch?.text, "");
-
-    const sid = await upsertSection({
-      project_id: proj.id,
-      type: "CHAPTER",
-      chapter_number: n,
-      title,
-      content: text,
-      status: ensureString(ch?.status, "PENDING") === "COMPLETED" ? "COMPLETED" : "PENDING",
-    });
-    await insertSectionVersion(sid, text);
-  }, []);
-
-  const rebuildAndSnapshotMaster = useCallback(async (proj: Project) => {
-    const masterText = await buildMasterServer(proj.id);
-    await insertMasterSnapshot(proj.id, proj.title, masterText);
-    return masterText;
-  }, []);
 
   const handleSignOut = useCallback(async () => {
     await releaseDevice();
@@ -409,21 +183,6 @@ const App: React.FC = () => {
       setError(normalizeError(e));
     }
   }, [hydrateProject]);
-
-  const handleDeleteProject = useCallback(async (id: string) => {
-    setError(null);
-    try {
-      await deleteProject(id);
-      const nextProjects = projectsRef.current.filter((p) => p.id !== id);
-      projectsRef.current = nextProjects;
-      setProjects(nextProjects);
-      if (activeProjectId === id) {
-        setActiveProjectId(nextProjects[0]?.id ?? null);
-      }
-    } catch (e) {
-      setError(normalizeError(e));
-    }
-  }, [activeProjectId]);
 
   const handleStartNewBook = useCallback(async (idea: string) => {
     setIsLoading(true);
@@ -1037,17 +796,7 @@ const targetWords =
                 <button
                   type="button"
                   disabled={savingSettings}
-                  onClick={async () => {
-                    try {
-                      setSavingSettings(true);
-                      const v = await upsertUserSettings(defaultChapterWords);
-                      setDefaultChapterWords(v);
-                    } catch (e) {
-                      setError(normalizeError(e));
-                    } finally {
-                      setSavingSettings(false);
-                    }
-                  }}
+                  onClick={saveSettings}
                   className="px-3 py-2 rounded-lg text-xs font-black bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
                 >
                   Guardar
@@ -1061,8 +810,7 @@ const targetWords =
               onSelectProject={handleSelectProject}
               onSave={handleSaveSnapshot}
               onCreateNew={() => {
-                didAutoSelectRef.current = true;
-                setActiveProjectId(null);
+                clearActiveProject();
                 setMessages([initialWelcomeMessage]);
                 setError(null);
               }}
