@@ -4,6 +4,7 @@ import type {
   ManuscriptAuditMode,
   ManuscriptChapterInput,
 } from "../../lib/refinery/types";
+import { guardPaidRequest, respondGuardError } from "../request-guard.js";
 
 export const maxDuration = 300;
 
@@ -178,6 +179,13 @@ export default async function handler(req: any, res: any) {
     }
 
     const user = await authenticate(req);
+
+    try {
+      await guardPaidRequest({ kind: "user", userId: String(user.id) }, "audit");
+    } catch (guardError: any) {
+      if (respondGuardError(res, guardError)) return;
+      throw guardError;
+    }
     const body = await readBody(req);
     const projectId = String(body?.project_id || body?.projectId || "").trim();
 
