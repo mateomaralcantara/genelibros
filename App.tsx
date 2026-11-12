@@ -2,15 +2,23 @@
 // ✅ Refactor "así": App pequeño, helpers en src/lib/editor.ts y src/lib/gemini.ts, UI auth en src/components/AuthGate.tsx
 // Mantiene TODO: Supabase-first + aprobación manual + generación 1 a la vez + targets globales + turbo capítulos DEV.
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import type { Project, ChatMessage, ProjectState } from "./types";
 
 import TableOfContents from "./components/TableOfContents";
 import ChatInterface from "./components/ChatInterface";
-import BookViewer from "./components/BookViewer";
 import GenerationDashboard from "./components/GenerationDashboard";
-import AutonomousPublishingOS from "./components/AutonomousPublishingOS";
 import { PenSquareIcon, RocketIcon, BookOpenIcon } from "./components/Icons";
+
+// Vistas que no se muestran al entrar: se descargan al abrirlas por primera vez.
+const BookViewer = lazy(() => import("./components/BookViewer"));
+const AutonomousPublishingOS = lazy(() => import("./components/AutonomousPublishingOS"));
+
+const ViewLoading: React.FC = () => (
+  <div className="flex min-h-full items-center justify-center bg-slate-950 p-10 text-xs font-black uppercase tracking-widest text-slate-500">
+    Cargando…
+  </div>
+);
 
 import { supabase } from "./src/lib/supabase";
 import {
@@ -41,6 +49,7 @@ import { useDeviceSession } from "./src/hooks/useDeviceSession";
 import { useAccessGate } from "./src/hooks/useAccessGate";
 import { useProjects } from "./src/hooks/useProjects";
 import { useUserSettings } from "./src/hooks/useUserSettings";
+import { REGENERATE_CONFIRM_MESSAGE, generatedProgress, isBookComplete, sectionIsGenerated } from "./src/lib/bookCompletion";
 import {
   persistProjectMeta,
   rebuildAndSnapshotMaster,
@@ -164,6 +173,14 @@ const App: React.FC = () => {
   // Proyecto recién creado que debe disparar la generación completa una sola vez.
   const fullBookAutostartRef = useRef<string | null>(null);
   const requestSeqRef = useRef<Record<string, number>>({});
+
+  // Lo generado queda cerrado: el panel lo muestra como listo aunque no llegue
+  // al objetivo de palabras, y solo se regenera con "Editar" + confirmación.
+  const activeBookComplete = isBookComplete(activeProject);
+  const dashboardProject = React.useMemo(
+    () => (activeProject ? ({ ...activeProject, generation_progress: generatedProgress(activeProject) } as Project) : null),
+    [activeProject]
+  );
 
   const handleSignOut = useCallback(async () => {
     await releaseDevice();
@@ -322,9 +339,21 @@ const App: React.FC = () => {
     const proj = projectsRef.current.find((p) => p.id === activeProjectId);
     if (!proj) return false;
 
+    const bypass = Boolean(opts?.bypassLock);
+
+    const targetSectionId =
+      action === "GENERATE_INTRODUCTION" ? "intro"
+        : action === "GENERATE_PROPOSAL" ? "proposal"
+          : `chap-${chapterNum}`;
+    if (sectionIsGenerated(proj, targetSectionId)) {
+      // Automático ("Autogenerar todo", arranque): nunca toca lo ya generado.
+      if (bypass) return true;
+      // Manual ("Editar"): solo con confirmación explícita del autor.
+      if (!window.confirm(REGENERATE_CONFIRM_MESSAGE)) return false;
+    }
+
     setError(null);
 
-    const bypass = Boolean(opts?.bypassLock);
     if (!bypass) {
       if (globalGenLockRef.current || anyGenerating) {
         setError("Ya hay una generación en curso. Termina esa y luego lanzas otra.");
@@ -435,6 +464,16 @@ const targetWords =
   ]);
 
   const handleGenerateSection = useCallback((action: string, chapterNum?: number) => generateSectionCore(action, chapterNum), [generateSectionCore]);
+
+  // Cuando un libro se termina en esta sesión, se muestra el libro completo.
+  const lastCompletionRef = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    if (!activeProject) return;
+    const id = activeProject.id;
+    const before = lastCompletionRef.current[id];
+    lastCompletionRef.current[id] = activeBookComplete;
+    if (before === false && activeBookComplete) setViewMode("book");
+  }, [activeBookComplete, activeProject]);
 
   // GENELIBROS_10_10_SINGLE_ORCHESTRATOR
   // Único orquestador del libro completo: propuesta -> introducción -> capítulos.
@@ -867,11 +906,27 @@ const targetWords =
           )}
 
           <div className="relative flex-1 min-h-0 overflow-y-auto">
+            <Suspense fallback={<ViewLoading />}>
             {activeProject ? (
               viewMode === "plan" ? (
                 <div className="min-h-full bg-slate-950">
+                  {activeBookComplete && (
+                    <div className="mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                      <span className="font-black">📕 Libro terminado.</span>
+                      <span className="text-emerald-200/80">
+                        Todo lo generado está cerrado. Para cambiar una sección, pulsa «Editar» en ella.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode("book")}
+                        className="ml-auto rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black hover:bg-emerald-500"
+                      >
+                        Ver libro completo
+                      </button>
+                    </div>
+                  )}
                   <GenerationDashboard
-                    project={activeProject}
+                    project={dashboardProject ?? activeProject}
                     onGenerate={handleGenerateSection}
                     onGenerateRemaining={handleGenerateRemaining}
                     onOpenBookView={() => setViewMode("book")}
@@ -907,6 +962,7 @@ const targetWords =
                 {error}
               </div>
             )}
+            </Suspense>
           </div>
         </main>
       </div>

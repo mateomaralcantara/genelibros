@@ -248,19 +248,49 @@ export async function upsertSection(params: {
     .single();
   if (ownErr) throw errCtx('upsertSection: proyecto no encontrado o sin permisos', ownErr);
 
+  const row = {
+    project_id: params.project_id,
+    type: params.type,
+    chapter_number: params.chapter_number,
+    title: params.title,
+    content: params.content,
+    status: params.status,
+  };
+
+  // Propuesta e introducción no tienen chapter_number (null). En Postgres dos
+  // NULL no chocan en un índice único, así que upsert(onConflict) nunca las
+  // encontraba y creaba una fila NUEVA en cada guardado: libros con varias
+  // propuestas/introducciones y al cargar salía una cualquiera (a veces vacía).
+  // Ahora: si ya existe, se actualiza esa fila; si no, se inserta.
+  if (params.chapter_number == null) {
+    const { data: existing, error: findErr } = await supabase
+      .from('sections')
+      .select('id')
+      .eq('project_id', params.project_id)
+      .eq('type', params.type)
+      .is('chapter_number', null)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (findErr) throw errCtx('upsertSection: búsqueda falló', findErr);
+
+    const { data, error } = existing?.id
+      ? await supabase
+          .from('sections')
+          .update({ title: row.title, content: row.content, status: row.status, updated_at: new Date().toISOString() })
+          .eq('id', existing.id)
+          .select('id')
+          .single()
+      : await supabase.from('sections').insert(row).select('id').single();
+
+    if (error) throw errCtx('upsertSection falló', error);
+    if (!data?.id) throw new Error('upsertSection: no se obtuvo id.');
+    return data.id as string;
+  }
+
   const { data, error } = await supabase
     .from('sections')
-    .upsert(
-      {
-        project_id: params.project_id,
-        type: params.type,
-        chapter_number: params.chapter_number,
-        title: params.title,
-        content: params.content,
-        status: params.status,
-      },
-      { onConflict: 'project_id,type,chapter_number' }
-    )
+    .upsert(row, { onConflict: 'project_id,type,chapter_number' })
     .select('id')
     .maybeSingle();
 

@@ -63,7 +63,7 @@ const ACCENTS: Record<AccentKey, { ring: string; dot: string; left: string; badg
 const StatusPill = memo(function StatusPill({ status }: { status: Status }) {
   const base =
     "inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.25em] px-3 py-1.5 rounded-full border";
-  if (status === "completed") return <span className={cx(base, "border-emerald-500/20 bg-emerald-500/10 text-emerald-200")}>Listo</span>;
+  if (status === "completed") return <span className={cx(base, "border-emerald-500/20 bg-emerald-500/10 text-emerald-200")}>Listo 🔒</span>;
   if (status === "generating") return <span className={cx(base, "border-sky-500/20 bg-sky-500/10 text-sky-200 animate-pulse")}>Escribiendo</span>;
   if (status === "error") return <span className={cx(base, "border-red-500/25 bg-red-500/10 text-red-200")}>Error</span>;
   return <span className={cx(base, "border-white/10 bg-white/5 text-slate-200/80")}>Pendiente</span>;
@@ -151,11 +151,11 @@ const SectionCard = memo(function SectionCard({
             onAction();
           }}
           className={cx(btnBase, btnState, canRun ? "" : "opacity-40 cursor-not-allowed")}
-          title={canRun ? (status === "completed" ? "Regenerar" : "Generar") : "Generando..."}
+          title={canRun ? (status === "completed" ? "Editar (regenerar con confirmación)" : "Generar") : "Generando..."}
           data-done={status === "completed" ? "true" : "false"}
         >
           {/* Si está listo, mostramos Play para regenerar (igual puedes dejar el check en UI si prefieres). */}
-          <PlayCircleIcon className="w-8 h-8" />
+          {status === "completed" ? <PenSquareIcon className="w-7 h-7" /> : <PlayCircleIcon className="w-8 h-8" />}
         </button>
       </div>
     </div>
@@ -247,10 +247,10 @@ const ChapterRow = memo(function ChapterRow({
             onAction();
           }}
           className={cx(btnBase, btnState, canRun ? "" : "opacity-40 cursor-not-allowed")}
-          title={canRun ? (status === "completed" ? "Regenerar capítulo" : "Generar capítulo") : "Generando..."}
+          title={canRun ? (status === "completed" ? "Editar capítulo (regenerar con confirmación)" : "Generar capítulo") : "Generando..."}
           data-done={status === "completed" ? "true" : "false"}
         >
-          <PlayCircleIcon className="w-8 h-8" />
+          {status === "completed" ? <PenSquareIcon className="w-7 h-7" /> : <PlayCircleIcon className="w-8 h-8" />}
         </button>
       </div>
     </div>
@@ -595,10 +595,10 @@ const GenerationDashboard = function GenerationDashboard({
                 onClick={() => onGenerateRemaining()}
                 disabled={isGeneratingGlobal || !hasPendingBlueprint}
                 className={btnPrimary}
-                title="Autogenera lo pendiente (propuesta, intro y todos los capítulos)"
+                title="Genera solo lo que aún está vacío. Lo ya generado no se toca."
               >
                 <RocketIcon className="w-5 h-5" />
-                {isGeneratingGlobal ? "Generando libro…" : "Autogenerar todo"}
+                {isGeneratingGlobal ? "Generando libro…" : hasPendingBlueprint ? "Autogenerar todo" : "Todo generado"}
               </button>
             </div>
           </div>

@@ -92,6 +92,7 @@ Guía completa: **[`supabase/README.md`](supabase/README.md)**.
 | `20261114_api_usage_daily_view.sql` | Vista `api_usage_daily` (consumo por usuario, 90 días) |
 | `20261115_reconcile_shared_tables.sql` | Añade columnas que falten en `generation_jobs`, `research_sources` y `subscription_plans`, y quita dos restricciones que bloqueaban la cola OS4 |
 | `20261116_profiles_has_access_default_false.sql` | Los perfiles nuevos entran sin acceso por defecto (antes `true`) |
+| `20261117_dedupe_singleton_sections.sql` | Una sola propuesta e introducción por libro: une duplicados (conserva la más reciente con texto y todo el historial) y lo impide en adelante |
 
 `.github/workflows/database-schema.yml` instala el esquema completo en un Postgres vacío en cada PR que toque SQL.
 

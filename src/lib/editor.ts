@@ -450,6 +450,15 @@ export function isPlaceholderText(text: string): boolean {
   return false;
 }
 
+/** Palabras mínimas para considerar que una sección tiene contenido real. */
+export const MIN_GENERATED_WORDS = 100;
+
+/** Una sección "generada" (y por tanto cerrada) tiene texto real, no un marcador de posición. */
+export function hasGeneratedText(text: unknown): boolean {
+  const t = ensureString(text, "").trim();
+  return countWordsQuick(t) >= MIN_GENERATED_WORDS && !isPlaceholderText(t);
+}
+
 export function chapterIsComplete(chText: string, targetWords?: number): boolean {
   const wc = countWordsQuick(chText);
   if (!wc) return false;
@@ -1078,12 +1087,25 @@ export function mergeProjectState(prev: ProjectState | undefined, next: ProjectS
 
 /* ----------------------- Supabase <-> UI mapping ----------------------- */
 
+/**
+ * Elige la fila de propuesta/introducción. Si hay duplicadas (bases antiguas,
+ * ver 20261117_dedupe_singleton_sections.sql), gana la más reciente con texto
+ * real; nunca una vacía si existe otra con contenido.
+ */
+export function pickSingletonSection(sections: any[], type: "PROPOSAL" | "INTRODUCTION"): any | undefined {
+  const rows = ensureArray<any>(sections, []).filter((s: any) => s?.type === type);
+  if (rows.length <= 1) return rows[0];
+  const time = (s: any) => Date.parse(ensureString(s?.updated_at, ensureString(s?.created_at, ""))) || 0;
+  const byRecent = rows.slice().sort((a: any, b: any) => time(b) - time(a));
+  return byRecent.find((s: any) => hasGeneratedText(s?.content)) ?? byRecent.find((s: any) => ensureString(s?.content, "").trim()) ?? byRecent[0];
+}
+
 export function mapDbFullToProject(db: any, sections: any[], masterLatest: any): Project {
   const legacyRepair = repairLegacyOutsiderProject(db);
   const sourceDb = legacyRepair ? { ...db, ...legacyRepair } : db;
   const sourceOutline = ensureArray<any>(sourceDb?.outline_12, []);
-  const proposal = sections.find((s: any) => s?.type === "PROPOSAL");
-  const intro = sections.find((s: any) => s?.type === "INTRODUCTION");
+  const proposal = pickSingletonSection(sections, "PROPOSAL");
+  const intro = pickSingletonSection(sections, "INTRODUCTION");
 
   const chapters = sections
     .filter((s: any) => s?.type === "CHAPTER")
@@ -1307,6 +1329,50 @@ export function ensureOutline12InState(state: AnyRecord, dashboard?: AnyRecord):
 
 /* ----------------------- Apply engine result -> project ----------------------- */
 
+const SECTION_ACTIONS = new Set(["GENERATE_PROPOSAL", "GENERATE_INTRODUCTION", "GENERATE_CHAPTER"]);
+
+/**
+ * GENELIBROS_SEALED_SECTIONS
+ * Cada generación solo puede cambiar SU sección. La IA devuelve el estado
+ * completo del libro y, sin este sello, generar la introducción podía
+ * reemplazar capítulos ya escritos (mergeProjectState solo protegía textos
+ * mucho más cortos). Toda sección ya generada que no sea el objetivo de la
+ * acción se restaura tal como estaba. Modifica mergedState en sitio.
+ */
+export function sealGeneratedSections(prevState: any, mergedState: any, ctx?: ProcessCtx): void {
+  const action = String(ctx?.action ?? "");
+  if (!prevState || !mergedState || !SECTION_ACTIONS.has(action)) return;
+
+  const targetChapter = action === "GENERATE_CHAPTER" ? Number(ctx?.chapterNum ?? 0) || 0 : 0;
+
+  if (action !== "GENERATE_PROPOSAL" && hasGeneratedText(prevState?.proposal?.text)) {
+    mergedState.proposal = { ...prevState.proposal };
+  }
+  if (action !== "GENERATE_INTRODUCTION" && hasGeneratedText(prevState?.introduction?.text)) {
+    mergedState.introduction = { ...prevState.introduction };
+  }
+
+  const sealed = new Map<number, any>();
+  for (const ch of ensureArray<any>(prevState?.chapters, [])) {
+    const n = Number(ch?.chapter_number ?? 0) || 0;
+    if (n > 0 && n !== targetChapter && hasGeneratedText(ch?.text)) sealed.set(n, ch);
+  }
+  if (!sealed.size) return;
+
+  const chapters = ensureArray<any>(mergedState.chapters, []).map((ch: any) => {
+    const n = Number(ch?.chapter_number ?? 0) || 0;
+    const original = sealed.get(n);
+    if (!original) return ch;
+    sealed.delete(n);
+    return { ...original };
+  });
+  // Un capítulo sellado que la respuesta omitió también se conserva.
+  for (const original of sealed.values()) chapters.push({ ...original });
+  mergedState.chapters = chapters.sort(
+    (a: any, b: any) => (Number(a?.chapter_number) || 0) - (Number(b?.chapter_number) || 0)
+  );
+}
+
 export function processEngineResult(result: EngineResult, currentProject: Project | undefined, ctx?: ProcessCtx): Project {
   const dashboard = isRecord(result.dashboard) ? (result.dashboard as AnyRecord) : {};
   const nextState0 = isRecord(result.project_state_updated) ? (result.project_state_updated as AnyRecord) : {};
@@ -1347,6 +1413,7 @@ export function processEngineResult(result: EngineResult, currentProject: Projec
   }
 
   const mergedState = mergeProjectState((currentProject as any)?.state as any, nextState);
+  sealGeneratedSections((currentProject as any)?.state, mergedState, ctx);
 
   const canonicalTitle = enforceCanonicalBookTitle(currentProject, mergedState, dashboard);
   const stateMaster = buildMasterFromState(mergedState, canonicalTitle).trim();

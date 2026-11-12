@@ -2,7 +2,6 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useSt
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Project } from '../types';
-import { generatePdf, generateDocx } from '../utils/download';
 import { countWords } from '../utils/helpers';
 import { FileDownIcon } from './Icons';
 
@@ -456,15 +455,21 @@ function buildSectionMarkdown(project: Project, key: string, fullText: string, a
 }
 
 const BookViewer: React.FC<BookViewerProps> = ({ project, onEditSection }) => {
-  // Texto “final” = expediente reconstruido vs master_document (elige el más completo)
+  // Texto "final": el libro reconstruido con las secciones actuales (propuesta,
+  // introducción y TODOS los capítulos generados). Antes se elegía el más largo
+  // entre esto y el documento maestro guardado, y una instantánea vieja con
+  // texto repetido podía ganar y mostrar solo un par de capítulos.
+  // El maestro guardado solo se usa si el estado no tiene ninguna sección.
   const fullText = useMemo(() => {
-    const master = getMasterText(project).trim();
+    const st: any = project?.state ?? {};
+    const stateHasContent =
+      Boolean(s(st?.proposal?.text, '').trim()) ||
+      Boolean(s(st?.introduction?.text, '').trim()) ||
+      arr<any>(st?.chapters, []).some((c) => Boolean(s(c?.text, '').trim()));
+
     const dossier = buildFullDossierMarkdown(project).trim();
-
-    if (!master) return dossier;
-    if (!dossier) return master;
-
-    return dossier.length >= master.length ? dossier : master;
+    if (stateHasContent) return dossier;
+    return getMasterText(project).trim() || dossier;
   }, [project]);
 
   // Auto-splitting por H2 (fallback cuando no hay capítulos en state)
@@ -615,7 +620,6 @@ const BookViewer: React.FC<BookViewerProps> = ({ project, onEditSection }) => {
   // Solo reseteamos si:
   // - Cambia el libro, o
   // - La sección actual ya no existe (key inválida), o
-  // - Si el libro es enorme, preferimos auto-abrir el primer capítulo/H2 *solo al entrar*.
   const prevProjectIdRef = useRef<string | null>(null);
   useEffect(() => {
     const projectId = (project as any)?.id ? String((project as any).id) : null;
@@ -627,10 +631,10 @@ const BookViewer: React.FC<BookViewerProps> = ({ project, onEditSection }) => {
 
     if (!projectChanged && currentKeyValid) return;
 
-    const firstChunk = baseSectionOptions.find((x) => x.key.startsWith('CHAPTER:') || x.key.startsWith('H2:'))?.key;
-    if (fullText.length > LONG_TEXT_THRESHOLD && firstChunk) setSectionKey(firstChunk);
-    else setSectionKey('FULL');
-  }, [project?.id, baseSectionOptions, fullText.length, sectionKey]);
+    // Siempre se abre el libro completo. Antes, a partir de ~220.000 caracteres
+    // (un libro de 12 capítulos de 3.000 palabras) abría solo el primer capítulo.
+    setSectionKey('FULL');
+  }, [project?.id, baseSectionOptions, sectionKey]);
 
   const displayText = useMemo(() => {
     const md = buildSectionMarkdown(project, sectionKey, fullText, autoH2Sections).trim();
@@ -724,8 +728,16 @@ const BookViewer: React.FC<BookViewerProps> = ({ project, onEditSection }) => {
 
   const handleDownload = useCallback(
     (format: 'pdf' | 'docx') => {
-      if (format === 'pdf') generatePdf(projectForDownload);
-      else generateDocx(projectForDownload);
+      // Las librerías de exportación (docx, jspdf, html2canvas: ~1,5 MB) se
+      // descargan solo al exportar, no al abrir la app.
+      import('../utils/download')
+        .then(({ generatePdf, generateDocx }) =>
+          format === 'pdf' ? generatePdf(projectForDownload) : generateDocx(projectForDownload)
+        )
+        .catch((e) => {
+          console.error('[export] No se pudo exportar el libro', e);
+          window.alert(`No se pudo exportar el libro: ${e instanceof Error ? e.message : String(e)}`);
+        });
     },
     [projectForDownload]
   );

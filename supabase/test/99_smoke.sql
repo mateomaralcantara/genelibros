@@ -55,6 +55,14 @@ begin
     raise exception 'B pudo aprobarse a sí mismo';
   exception when insufficient_privilege then null;
   end;
+  -- Una sola propuesta por libro (20261117_dedupe_singleton_sections.sql).
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  insert into public.sections(project_id, type, chapter_number, content) values ('55555555-5555-5555-5555-555555555555', 'PROPOSAL', null, 'Propuesta');
+  begin
+    insert into public.sections(project_id, type, chapter_number, content) values ('55555555-5555-5555-5555-555555555555', 'PROPOSAL', null, 'Otra propuesta');
+    raise exception 'Se pudo crear una segunda propuesta en el mismo libro';
+  exception when unique_violation then null;
+  end;
   reset role;
 end $$;
 select 'RLS OK';

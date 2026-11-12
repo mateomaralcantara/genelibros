@@ -104,6 +104,7 @@
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.23",
     "fast-glob": "^3.3.3",
+    "fflate": "^0.8.3",
     "madge": "^8.0.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
