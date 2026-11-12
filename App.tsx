@@ -2,15 +2,23 @@
 // ✅ Refactor "así": App pequeño, helpers en src/lib/editor.ts y src/lib/gemini.ts, UI auth en src/components/AuthGate.tsx
 // Mantiene TODO: Supabase-first + aprobación manual + generación 1 a la vez + targets globales + turbo capítulos DEV.
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import type { Project, ChatMessage, ProjectState } from "./types";
 
 import TableOfContents from "./components/TableOfContents";
 import ChatInterface from "./components/ChatInterface";
-import BookViewer from "./components/BookViewer";
 import GenerationDashboard from "./components/GenerationDashboard";
-import AutonomousPublishingOS from "./components/AutonomousPublishingOS";
 import { PenSquareIcon, RocketIcon, BookOpenIcon } from "./components/Icons";
+
+// Vistas que no se muestran al entrar: se descargan al abrirlas por primera vez.
+const BookViewer = lazy(() => import("./components/BookViewer"));
+const AutonomousPublishingOS = lazy(() => import("./components/AutonomousPublishingOS"));
+
+const ViewLoading: React.FC = () => (
+  <div className="flex min-h-full items-center justify-center bg-slate-950 p-10 text-xs font-black uppercase tracking-widest text-slate-500">
+    Cargando…
+  </div>
+);
 
 import { supabase } from "./src/lib/supabase";
 import {
@@ -867,6 +875,7 @@ const targetWords =
           )}
 
           <div className="relative flex-1 min-h-0 overflow-y-auto">
+            <Suspense fallback={<ViewLoading />}>
             {activeProject ? (
               viewMode === "plan" ? (
                 <div className="min-h-full bg-slate-950">
@@ -907,6 +916,7 @@ const targetWords =
                 {error}
               </div>
             )}
+            </Suspense>
           </div>
         </main>
       </div>

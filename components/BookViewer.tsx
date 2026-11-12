@@ -2,7 +2,6 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useSt
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Project } from '../types';
-import { generatePdf, generateDocx } from '../utils/download';
 import { countWords } from '../utils/helpers';
 import { FileDownIcon } from './Icons';
 
@@ -724,8 +723,13 @@ const BookViewer: React.FC<BookViewerProps> = ({ project, onEditSection }) => {
 
   const handleDownload = useCallback(
     (format: 'pdf' | 'docx') => {
-      if (format === 'pdf') generatePdf(projectForDownload);
-      else generateDocx(projectForDownload);
+      // Las librerías de exportación (docx, jspdf, html2canvas: ~1,5 MB) se
+      // descargan solo al exportar, no al abrir la app.
+      import('../utils/download')
+        .then(({ generatePdf, generateDocx }) =>
+          format === 'pdf' ? generatePdf(projectForDownload) : generateDocx(projectForDownload)
+        )
+        .catch((e) => console.error('[export] No se pudo exportar el libro', e));
     },
     [projectForDownload]
   );
