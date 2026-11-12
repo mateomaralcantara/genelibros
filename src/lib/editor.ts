@@ -1087,12 +1087,25 @@ export function mergeProjectState(prev: ProjectState | undefined, next: ProjectS
 
 /* ----------------------- Supabase <-> UI mapping ----------------------- */
 
+/**
+ * Elige la fila de propuesta/introducción. Si hay duplicadas (bases antiguas,
+ * ver 20261117_dedupe_singleton_sections.sql), gana la más reciente con texto
+ * real; nunca una vacía si existe otra con contenido.
+ */
+export function pickSingletonSection(sections: any[], type: "PROPOSAL" | "INTRODUCTION"): any | undefined {
+  const rows = ensureArray<any>(sections, []).filter((s: any) => s?.type === type);
+  if (rows.length <= 1) return rows[0];
+  const time = (s: any) => Date.parse(ensureString(s?.updated_at, ensureString(s?.created_at, ""))) || 0;
+  const byRecent = rows.slice().sort((a: any, b: any) => time(b) - time(a));
+  return byRecent.find((s: any) => hasGeneratedText(s?.content)) ?? byRecent.find((s: any) => ensureString(s?.content, "").trim()) ?? byRecent[0];
+}
+
 export function mapDbFullToProject(db: any, sections: any[], masterLatest: any): Project {
   const legacyRepair = repairLegacyOutsiderProject(db);
   const sourceDb = legacyRepair ? { ...db, ...legacyRepair } : db;
   const sourceOutline = ensureArray<any>(sourceDb?.outline_12, []);
-  const proposal = sections.find((s: any) => s?.type === "PROPOSAL");
-  const intro = sections.find((s: any) => s?.type === "INTRODUCTION");
+  const proposal = pickSingletonSection(sections, "PROPOSAL");
+  const intro = pickSingletonSection(sections, "INTRODUCTION");
 
   const chapters = sections
     .filter((s: any) => s?.type === "CHAPTER")

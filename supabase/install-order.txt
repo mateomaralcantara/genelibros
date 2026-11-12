@@ -26,5 +26,6 @@ supabase/migrations/20261112_api_rate_limits.sql
 supabase/migrations/20261113_protect_profile_access.sql
 supabase/migrations/20261114_api_usage_daily_view.sql
 supabase/migrations/20261116_profiles_has_access_default_false.sql
+supabase/migrations/20261117_dedupe_singleton_sections.sql
 # 6. Reconciliar otra vez (20260525 añade restricciones que la cola OS4 no admite)
 supabase/migrations/20261115_reconcile_shared_tables.sql
