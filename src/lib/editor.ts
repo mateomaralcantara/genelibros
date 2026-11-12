@@ -450,6 +450,15 @@ export function isPlaceholderText(text: string): boolean {
   return false;
 }
 
+/** Palabras mínimas para considerar que una sección tiene contenido real. */
+export const MIN_GENERATED_WORDS = 100;
+
+/** Una sección "generada" (y por tanto cerrada) tiene texto real, no un marcador de posición. */
+export function hasGeneratedText(text: unknown): boolean {
+  const t = ensureString(text, "").trim();
+  return countWordsQuick(t) >= MIN_GENERATED_WORDS && !isPlaceholderText(t);
+}
+
 export function chapterIsComplete(chText: string, targetWords?: number): boolean {
   const wc = countWordsQuick(chText);
   if (!wc) return false;
@@ -1307,6 +1316,50 @@ export function ensureOutline12InState(state: AnyRecord, dashboard?: AnyRecord):
 
 /* ----------------------- Apply engine result -> project ----------------------- */
 
+const SECTION_ACTIONS = new Set(["GENERATE_PROPOSAL", "GENERATE_INTRODUCTION", "GENERATE_CHAPTER"]);
+
+/**
+ * GENELIBROS_SEALED_SECTIONS
+ * Cada generación solo puede cambiar SU sección. La IA devuelve el estado
+ * completo del libro y, sin este sello, generar la introducción podía
+ * reemplazar capítulos ya escritos (mergeProjectState solo protegía textos
+ * mucho más cortos). Toda sección ya generada que no sea el objetivo de la
+ * acción se restaura tal como estaba. Modifica mergedState en sitio.
+ */
+export function sealGeneratedSections(prevState: any, mergedState: any, ctx?: ProcessCtx): void {
+  const action = String(ctx?.action ?? "");
+  if (!prevState || !mergedState || !SECTION_ACTIONS.has(action)) return;
+
+  const targetChapter = action === "GENERATE_CHAPTER" ? Number(ctx?.chapterNum ?? 0) || 0 : 0;
+
+  if (action !== "GENERATE_PROPOSAL" && hasGeneratedText(prevState?.proposal?.text)) {
+    mergedState.proposal = { ...prevState.proposal };
+  }
+  if (action !== "GENERATE_INTRODUCTION" && hasGeneratedText(prevState?.introduction?.text)) {
+    mergedState.introduction = { ...prevState.introduction };
+  }
+
+  const sealed = new Map<number, any>();
+  for (const ch of ensureArray<any>(prevState?.chapters, [])) {
+    const n = Number(ch?.chapter_number ?? 0) || 0;
+    if (n > 0 && n !== targetChapter && hasGeneratedText(ch?.text)) sealed.set(n, ch);
+  }
+  if (!sealed.size) return;
+
+  const chapters = ensureArray<any>(mergedState.chapters, []).map((ch: any) => {
+    const n = Number(ch?.chapter_number ?? 0) || 0;
+    const original = sealed.get(n);
+    if (!original) return ch;
+    sealed.delete(n);
+    return { ...original };
+  });
+  // Un capítulo sellado que la respuesta omitió también se conserva.
+  for (const original of sealed.values()) chapters.push({ ...original });
+  mergedState.chapters = chapters.sort(
+    (a: any, b: any) => (Number(a?.chapter_number) || 0) - (Number(b?.chapter_number) || 0)
+  );
+}
+
 export function processEngineResult(result: EngineResult, currentProject: Project | undefined, ctx?: ProcessCtx): Project {
   const dashboard = isRecord(result.dashboard) ? (result.dashboard as AnyRecord) : {};
   const nextState0 = isRecord(result.project_state_updated) ? (result.project_state_updated as AnyRecord) : {};
@@ -1347,6 +1400,7 @@ export function processEngineResult(result: EngineResult, currentProject: Projec
   }
 
   const mergedState = mergeProjectState((currentProject as any)?.state as any, nextState);
+  sealGeneratedSections((currentProject as any)?.state, mergedState, ctx);
 
   const canonicalTitle = enforceCanonicalBookTitle(currentProject, mergedState, dashboard);
   const stateMaster = buildMasterFromState(mergedState, canonicalTitle).trim();

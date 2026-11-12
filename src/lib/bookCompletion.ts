@@ -9,15 +9,9 @@
 // se aplica encima para el panel, "Autogenerar todo" y el cierre del libro.
 
 import type { Project } from "../../types";
-import { countWordsQuick, ensureArray, ensureString, isPlaceholderText, recomputeGenerationProgress } from "./editor";
+import { ensureArray, ensureString, hasGeneratedText, recomputeGenerationProgress } from "./editor";
 
-/** Palabras mínimas para considerar que una sección tiene contenido real. */
-export const MIN_GENERATED_WORDS = 100;
-
-export function hasGeneratedText(text: unknown): boolean {
-  const t = ensureString(text, "").trim();
-  return countWordsQuick(t) >= MIN_GENERATED_WORDS && !isPlaceholderText(t);
-}
+export { MIN_GENERATED_WORDS, hasGeneratedText } from "./editor";
 
 /** Texto actual de una sección: "proposal", "intro" o "chap-N". */
 export function sectionText(project: Project | null | undefined, sectionId: string): string {
