@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { guardPaidRequest, respondGuardError } from "../request-guard.js";
 
 export const maxDuration = 60;
 
@@ -214,6 +215,13 @@ export default async function handler(req: any, res: any) {
     if (activeError) throw activeError;
     if (active?.[0]) {
       return res.status(200).json({ ok: true, reused: true, job: active[0] });
+    }
+
+    try {
+      await guardPaidRequest({ kind: "user", userId: String(user.id) }, "jobs");
+    } catch (guardError: any) {
+      if (respondGuardError(res, guardError)) return;
+      throw guardError;
     }
 
     const mode = String(body?.mode || "").toUpperCase() === "SUPREME" ? "SUPREME" : "DEEP";

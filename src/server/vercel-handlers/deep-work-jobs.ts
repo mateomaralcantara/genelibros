@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { guardPaidRequest, respondGuardError } from "../request-guard.js";
 
 export const maxDuration = 60;
 type AnyRow = Record<string, any>;
@@ -142,6 +143,13 @@ export default async function handler(req: any, res: any) {
       .limit(1);
     if (activeError) throw activeError;
     if (active?.[0]) return res.status(200).json({ ok: true, reused: true, job: active[0] });
+
+    try {
+      await guardPaidRequest({ kind: "user", userId: String(user.id) }, "jobs");
+    } catch (guardError: any) {
+      if (respondGuardError(res, guardError)) return;
+      throw guardError;
+    }
 
     const creditGuardEnabled = !["0", "false", "off"].includes(
       String(process.env.DEEP_CREDIT_GUARD || "1").trim().toLowerCase(),

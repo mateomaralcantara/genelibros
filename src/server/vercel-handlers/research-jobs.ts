@@ -12,6 +12,7 @@ type VercelResponse = {
 
 import { createClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
+import { guardPaidRequest, respondGuardError } from "../request-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
@@ -49,6 +50,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const idempotencyKey=crypto.createHash("sha256").update(JSON.stringify({user:user.id,project:projectId,chapter:chapterNumber,topic,objective,depth})).digest("hex");
     const {data:active}=await admin.from("research_jobs").select("*").eq("user_id",user.id).eq("idempotency_key",idempotencyKey).in("status",["QUEUED","RUNNING","RETRYING"]).order("created_at",{ascending:false}).limit(1).maybeSingle();
     if(active)return json(res,200,{ok:true,reused:true,job:active});
+    try { await guardPaidRequest({kind:"user",userId:String(user.id)},"jobs"); }
+    catch(guardError:any){ if(respondGuardError(res,guardError))return; throw guardError; }
     const {data:job,error}=await admin.from("research_jobs").insert({user_id:user.id,project_id:projectId,chapter_number:chapterNumber,topic,objective,depth,max_sources:maxSources,manual_urls:manualUrls,idempotency_key:idempotencyKey,status:"QUEUED",progress:0,checkpoint:{step:"INIT",usage:{calls:0,inputTokens:0,outputTokens:0,totalTokens:0},warnings:[]}}).select("*").single(); if(error)throw error;
     return json(res,202,{ok:true,reused:false,job});
   } catch(error:any){ return json(res,500,{error:error?.message||"Research jobs error."}); }

@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
-import { applyRetryAfter, enforceQuota } from "../src/server/rate-limit.js";
+import { applyRetryAfter } from "../src/server/rate-limit.js";
+import { guardPaidRequest } from "../src/server/request-guard.js";
 
 type Agent =
   | "MARKET_STRATEGIST"
@@ -580,8 +581,8 @@ export default async function handler(req: any, res: any) {
 
   try {
     const user = await authenticate(req);
-    // Límite de uso por usuario (protege la cuota de Gemini).
-    await enforceQuota({ kind: "user", userId: String(user.id) }, "os4");
+    // Acceso aprobado + límite de uso por usuario (protege la cuota de Gemini).
+    await guardPaidRequest({ kind: "user", userId: String(user.id) }, "os4");
     const body = await readBody(req);
 
     const agent = String(body.agent || "") as Agent;

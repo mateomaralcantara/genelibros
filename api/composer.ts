@@ -97,7 +97,8 @@ const ELITE_COMPOSER_10_LIVE_RUNTIME = {
 
 import { GoogleGenAI } from '@google/genai';
 import { requireUserOrWorker } from '../src/server/request-auth.js';
-import { applyRetryAfter, enforceQuota, QuotaExceededError } from '../src/server/rate-limit.js';
+import { applyRetryAfter, QuotaExceededError } from '../src/server/rate-limit.js';
+import { guardPaidRequest } from '../src/server/request-guard.js';
 
 /**
  * Vercel Serverless Function: POST /api/composer
@@ -714,8 +715,8 @@ export default async function handler(req: any, res: any) {
   try {
     // Protege el endpoint: solo usuarios autenticados o workers con secreto.
     const principal = await requireUserOrWorker(req);
-    // Límite de uso por usuario (protege la cuota de Gemini).
-    await enforceQuota(principal, 'composer');
+    // Acceso aprobado + límite de uso por usuario (protege la cuota de Gemini).
+    await guardPaidRequest(principal, 'composer');
 
     const contentType = String(req.headers?.['content-type'] ?? '');
     // No lo hacemos súper estricto, pero ayuda a evitar body raro

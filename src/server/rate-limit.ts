@@ -12,6 +12,8 @@ import type { RequestPrincipal } from "./request-auth";
  *   RATE_LIMIT_COMPOSER_HOURLY=60   RATE_LIMIT_COMPOSER_DAILY=300
  *   RATE_LIMIT_OS4_HOURLY=60        RATE_LIMIT_OS4_DAILY=300
  *   RATE_LIMIT_RESEARCH_HOURLY=20   RATE_LIMIT_RESEARCH_DAILY=100
+ *   RATE_LIMIT_AUDIT_HOURLY=10      RATE_LIMIT_AUDIT_DAILY=40
+ *   RATE_LIMIT_JOBS_HOURLY=30       RATE_LIMIT_JOBS_DAILY=150   (encolar trabajos)
  * Un valor 0 desactiva esa ventana.
  *
  * Si la base de datos no responde (p. ej. falta la migración), por defecto
@@ -19,12 +21,14 @@ import type { RequestPrincipal } from "./request-auth";
  * Con RATE_LIMIT_FAIL_CLOSED=true la rechaza (503).
  */
 
-export type QuotaBucket = "composer" | "os4" | "research";
+export type QuotaBucket = "composer" | "os4" | "research" | "audit" | "jobs";
 
 const DEFAULT_LIMITS: Record<QuotaBucket, { hourly: number; daily: number }> = {
   composer: { hourly: 60, daily: 300 },
   os4: { hourly: 60, daily: 300 },
   research: { hourly: 20, daily: 100 },
+  audit: { hourly: 10, daily: 40 },
+  jobs: { hourly: 30, daily: 150 },
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
