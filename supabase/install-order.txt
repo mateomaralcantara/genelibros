@@ -1,9 +1,9 @@
 # Orden de instalación del esquema de GeneLibros en una base nueva.
 # Una ruta por línea, relativa a la raíz del repo. Las líneas con # se ignoran.
-# Requisito previo: las tablas base creadas en Supabase (projects, sections,
-# section_versions, master_documents, profiles, access_requests, user_settings).
 # Lo prueba .github/workflows/database-schema.yml en un Postgres real.
 
+# 0. Tablas base de la app (projects, sections, profiles...)
+supabase/migrations/00000000_base_tables.sql
 # 1. Tablas compartidas (generation_jobs, planes, uso, eventos)
 sql/elite-market-10-schema.sql
 # 2. Investigación (research_jobs, research_sources...) antes que elite-research
@@ -25,5 +25,6 @@ supabase/migrations/20260525_generation_jobs.sql
 supabase/migrations/20261112_api_rate_limits.sql
 supabase/migrations/20261113_protect_profile_access.sql
 supabase/migrations/20261114_api_usage_daily_view.sql
+supabase/migrations/20261116_profiles_has_access_default_false.sql
 # 6. Reconciliar otra vez (20260525 añade restricciones que la cola OS4 no admite)
 supabase/migrations/20261115_reconcile_shared_tables.sql
