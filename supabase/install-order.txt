@@ -1,0 +1,29 @@
+# Orden de instalación del esquema de GeneLibros en una base nueva.
+# Una ruta por línea, relativa a la raíz del repo. Las líneas con # se ignoran.
+# Requisito previo: las tablas base creadas en Supabase (projects, sections,
+# section_versions, master_documents, profiles, access_requests, user_settings).
+# Lo prueba .github/workflows/database-schema.yml en un Postgres real.
+
+# 1. Tablas compartidas (generation_jobs, planes, uso, eventos)
+sql/elite-market-10-schema.sql
+# 2. Investigación (research_jobs, research_sources...) antes que elite-research
+sql/research-11d-engine.sql
+# 3. Reconciliar columnas antes de elite-research (que inserta en subscription_plans)
+supabase/migrations/20261115_reconcile_shared_tables.sql
+sql/elite-research-schema.sql
+# 4. Módulos
+sql/bestseller-os4-schema.sql
+sql/os4-10a-cost-publishing.sql
+sql/os4-10b-durable-worker.sql
+sql/refinery-11b-schema.sql
+sql/refinery-11b2-durable-worker.sql
+sql/refinery-11b3-execution-engine.sql
+sql/deep-work-11c-engine.sql
+device_session_gate.sql
+# 5. Migraciones
+supabase/migrations/20260525_generation_jobs.sql
+supabase/migrations/20261112_api_rate_limits.sql
+supabase/migrations/20261113_protect_profile_access.sql
+supabase/migrations/20261114_api_usage_daily_view.sql
+# 6. Reconciliar otra vez (20260525 añade restricciones que la cola OS4 no admite)
+supabase/migrations/20261115_reconcile_shared_tables.sql
