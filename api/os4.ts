@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
-import { applyRetryAfter, enforceQuota } from "../src/server/rate-limit";
+import { applyRetryAfter, enforceQuota } from "../src/server/rate-limit.js";
 
 type Agent =
   | "MARKET_STRATEGIST"

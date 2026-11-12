@@ -96,8 +96,8 @@ const ELITE_COMPOSER_10_LIVE_RUNTIME = {
 } as const;
 
 import { GoogleGenAI } from '@google/genai';
-import { requireUserOrWorker } from '../src/server/request-auth';
-import { applyRetryAfter, enforceQuota, QuotaExceededError } from '../src/server/rate-limit';
+import { requireUserOrWorker } from '../src/server/request-auth.js';
+import { applyRetryAfter, enforceQuota, QuotaExceededError } from '../src/server/rate-limit.js';
 
 /**
  * Vercel Serverless Function: POST /api/composer

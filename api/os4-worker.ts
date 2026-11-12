@@ -4,7 +4,7 @@ import {
   writeOs4Chapter,
   type Os4RuntimeResponse,
   type Os4ServerAgent,
-} from "../src/server/os4-runtime";
+} from "../src/server/os4-runtime.js";
 
 export const maxDuration = 300;
 
