@@ -97,6 +97,7 @@ const ELITE_COMPOSER_10_LIVE_RUNTIME = {
 
 import { GoogleGenAI } from '@google/genai';
 import { requireUserOrWorker } from '../src/server/request-auth';
+import { applyRetryAfter, enforceQuota, QuotaExceededError } from '../src/server/rate-limit';
 
 /**
  * Vercel Serverless Function: POST /api/composer
@@ -712,7 +713,9 @@ export default async function handler(req: any, res: any) {
 
   try {
     // Protege el endpoint: solo usuarios autenticados o workers con secreto.
-    await requireUserOrWorker(req);
+    const principal = await requireUserOrWorker(req);
+    // Límite de uso por usuario (protege la cuota de Gemini).
+    await enforceQuota(principal, 'composer');
 
     const contentType = String(req.headers?.['content-type'] ?? '');
     // No lo hacemos súper estricto, pero ayuda a evitar body raro
@@ -903,6 +906,10 @@ export default async function handler(req: any, res: any) {
     if (invalid) return res.status(502).json({error: 'El modelo no entregó el índice completo con títulos editoriales. Se conservó el proyecto; la redacción no se ha iniciado.'});
     return res.status(200).json(parsed);
   } catch (e: any) {
+    if (e instanceof QuotaExceededError) {
+      applyRetryAfter(res, e);
+      return res.status(429).json({ error: e.message, code: 'USER_QUOTA_EXCEEDED' });
+    }
     const statusCode = typeof e?.statusCode === 'number' ? e.statusCode : 500;
     const msg = pickErrorMessage(e);
 

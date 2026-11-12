@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
+import { applyRetryAfter, enforceQuota } from "../src/server/rate-limit";
 
 type Agent =
   | "MARKET_STRATEGIST"
@@ -579,6 +580,8 @@ export default async function handler(req: any, res: any) {
 
   try {
     const user = await authenticate(req);
+    // Límite de uso por usuario (protege la cuota de Gemini).
+    await enforceQuota({ kind: "user", userId: String(user.id) }, "os4");
     const body = await readBody(req);
 
     const agent = String(body.agent || "") as Agent;
@@ -635,9 +638,11 @@ export default async function handler(req: any, res: any) {
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500) || 500;
+    applyRetryAfter(res, error);
     return res.status(status).json({
       ok: false,
       error: String(error?.message || error),
+      ...(status === 429 ? { code: "USER_QUOTA_EXCEEDED" } : {}),
       latency_ms: Date.now() - started,
     });
   }

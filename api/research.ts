@@ -1,5 +1,6 @@
 import { requireUserOrWorker } from "../src/server/request-auth";
 import { safeFetchText } from "../src/server/safe-fetch";
+import { applyRetryAfter, enforceQuota } from "../src/server/rate-limit";
 
 type ResearchSource = {
   title: string;
@@ -156,10 +157,17 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    await requireUserOrWorker(req);
+    const principal = await requireUserOrWorker(req);
+    await enforceQuota(principal, "research");
   } catch (error: any) {
     const status = typeof error?.statusCode === "number" ? error.statusCode : 401;
-    return res.status(status).json({ ok: false, error: status === 401 ? "Unauthorized" : "Server auth misconfigured" });
+    applyRetryAfter(res, error);
+    const message =
+      status === 429 ? error.message :
+      status === 401 ? "Unauthorized" :
+      status === 503 ? error.message :
+      "Server auth misconfigured";
+    return res.status(status).json({ ok: false, error: message, ...(status === 429 ? { code: "USER_QUOTA_EXCEEDED" } : {}) });
   }
 
   try {
