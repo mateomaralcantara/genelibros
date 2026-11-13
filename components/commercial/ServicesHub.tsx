@@ -103,6 +103,7 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
       .catch((e) => setCatalogError(e instanceof Error ? e.message : String(e)));
   }, []);
   const back = () => setPage("hub");
+  const freePlan = catalog.find((i) => i.kind === "FREE" && i.active);
   const [checkout, setCheckout] = useState<CheckoutTarget | null>(null);
   const buy = (item: CatalogItem) =>
     item.price_usd != null && setCheckout({ type: "catalog", code: item.code, name: item.name, amountUsd: item.price_usd, credits: item.credits });
@@ -139,7 +140,34 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
         <div className="mx-auto max-w-5xl">
           <h1 className="text-4xl font-black text-white">¿Cómo quieres hacer tu libro?</h1>
           <p className="mt-2 text-sm text-slate-400">Elige la modalidad que mejor encaje contigo.</p>
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
+          {freePlan && (
+            <button
+              type="button"
+              onClick={onBack}
+              disabled={!onBack}
+              className={`${card} mt-8 block w-full border-emerald-400/50 bg-gradient-to-br from-emerald-500/20 to-teal-500/10`}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-200">Empieza aquí · sin tarjeta</div>
+                  <div className="mt-2 text-2xl font-black text-white">{freePlan.name}</div>
+                  <p className="mt-2 text-sm text-slate-300">{freePlan.description}</p>
+                  <ul className="mt-3 grid gap-x-6 gap-y-1 text-sm text-slate-200 sm:grid-cols-2">
+                    {freePlan.features.map((f) => (
+                      <li key={f}><span className="text-emerald-300">✓</span> {f}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="text-right">
+                  <div className="text-4xl font-black text-white">Gratis</div>
+                  <span className="mt-3 inline-block rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-slate-950">
+                    Empezar gratis
+                  </span>
+                </div>
+              </div>
+            </button>
+          )}
+          <div className={`${freePlan ? "mt-4" : "mt-8"} grid gap-4 md:grid-cols-2`}>
             {MODALITIES.map((m) => (
               <button key={m.key} type="button" onClick={() => setPage(m.key)} className={`${card} ${m.accent} ${m.key === "D" ? "md:col-span-2" : ""}`}>
                 <div className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-200/90">{m.tag}</div>
