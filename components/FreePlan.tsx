@@ -94,3 +94,52 @@ export const UpgradeModal: React.FC<{
     </div>
   </div>
 );
+
+const FREE_TEASER_DISMISSED = "genelibros.freeTeaserDismissed";
+
+/** Tarjeta pequeña en una esquina que presenta el plan gratis a los visitantes. Se puede cerrar. */
+export const FreePlanTeaser: React.FC<{ plan: CatalogItem | null; onStart: () => void }> = ({ plan, onStart }) => {
+  const [hidden, setHidden] = React.useState(() => {
+    try {
+      return localStorage.getItem(FREE_TEASER_DISMISSED) === "1";
+    } catch {
+      return false;
+    }
+  });
+  if (!plan || hidden) return null;
+  const close = () => {
+    setHidden(true);
+    try {
+      localStorage.setItem(FREE_TEASER_DISMISSED, "1");
+    } catch {
+      /* sin almacenamiento */
+    }
+  };
+  return (
+    <aside
+      className="fixed right-4 top-20 z-40 w-64 rounded-2xl border border-emerald-400/50 bg-slate-900/95 p-4 text-slate-100 shadow-2xl backdrop-blur"
+      aria-label="Plan gratis"
+    >
+      <button type="button" onClick={close} className="absolute right-3 top-2 text-lg leading-none text-slate-400 hover:text-white" aria-label="Cerrar">
+        ×
+      </button>
+      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-200">Empieza aquí · sin tarjeta</div>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className="text-lg font-black text-white">{plan.name}</span>
+        <span className="text-sm font-black text-emerald-300">Gratis</span>
+      </div>
+      <ul className="mt-2 space-y-0.5 text-xs text-slate-300">
+        {plan.features.slice(0, 4).map((f) => (
+          <li key={f}><span className="text-emerald-300">✓</span> {f}</li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        onClick={onStart}
+        className="mt-3 w-full rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-950 hover:bg-emerald-400"
+      >
+        Empezar gratis
+      </button>
+    </aside>
+  );
+};

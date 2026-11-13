@@ -53,7 +53,7 @@ import { getMyStaffRoles, type StaffRole } from "./src/data/editorialRepo";
 import { useProjects } from "./src/hooks/useProjects";
 import { useUserSettings } from "./src/hooks/useUserSettings";
 import { isUpgradeError, useFreePlanUsage } from "./src/hooks/useFreePlanUsage";
-import { FREE_PLAN_UPGRADE_TEXT, FreePlanBanner, UpgradeModal } from "./components/FreePlan";
+import { FREE_PLAN_UPGRADE_TEXT, FreePlanBanner, FreePlanTeaser, UpgradeModal } from "./components/FreePlan";
 import { listCatalog } from "./src/data/pricingRepo";
 import { cheapestPaidPlans, type CatalogItem } from "./src/lib/commercial/pricing";
 import { REGENERATE_CONFIRM_MESSAGE, generatedProgress, isBookComplete, sectionIsGenerated } from "./src/lib/bookCompletion";
@@ -184,6 +184,14 @@ const App: React.FC = () => {
   }, [upgradeReason, upgradePlans]);
   // Visitante: ventana de registro y texto pendiente.
   const [signupOpen, setSignupOpen] = useState(false);
+  // Plan gratis para la tarjeta de la esquina (visitantes).
+  const [guestFreePlan, setGuestFreePlan] = useState<CatalogItem | null>(null);
+  useEffect(() => {
+    if (session) return;
+    listCatalog()
+      .then((items) => setGuestFreePlan(items.find((i) => i.kind === "FREE" && i.active) ?? null))
+      .catch(() => setGuestFreePlan(null));
+  }, [session]);
   const [pendingIdea, setPendingIdea] = useState("");
   useEffect(() => {
     if (!session) return;
@@ -845,6 +853,7 @@ const targetWords =
         <div className="flex min-h-0 flex-1 flex-col">
           <ChatInterface messages={messages} isLoading={false} onSendMessage={() => undefined} onRequireSignup={openSignup} error={null} />
         </div>
+        {!signupOpen && <FreePlanTeaser plan={guestFreePlan} onStart={() => openSignup("")} />}
         {signupOpen && (
       <AuthScreen
         variant="modal"
