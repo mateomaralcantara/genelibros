@@ -16,6 +16,7 @@ const input = "w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.
 const btn = "rounded-lg px-3 py-1.5 text-xs font-black uppercase tracking-widest transition disabled:opacity-50";
 
 const KIND_TITLES: Record<CatalogKind, string> = {
+  FREE: "Plan gratis",
   BOOK: "A · Libro con un clic",
   SUBSCRIPTION: "B · Suscripciones (mensual)",
   CREDIT_PACK: "C · Paquetes de créditos",
@@ -29,6 +30,7 @@ const Row: React.FC<{ item: CatalogItem; onSave: (patch: Partial<CatalogItem>) =
     price: item.price_usd?.toString() ?? "",
     max: item.max_price_usd?.toString() ?? "",
     credits: item.credits?.toString() ?? "",
+    maxWords: item.limits?.max_words != null ? String(item.limits.max_words) : "",
     features: item.features.join("\n"),
     active: item.active,
   });
@@ -38,12 +40,14 @@ const Row: React.FC<{ item: CatalogItem; onSave: (patch: Partial<CatalogItem>) =
     d.price !== (item.price_usd?.toString() ?? "") ||
     d.max !== (item.max_price_usd?.toString() ?? "") ||
     d.credits !== (item.credits?.toString() ?? "") ||
+    d.maxWords !== (item.limits?.max_words != null ? String(item.limits.max_words) : "") ||
     d.features !== item.features.join("\n") ||
     d.active !== item.active;
   const num = (v: string) => (v.trim() === "" ? null : Number(v));
-  const showPrice = item.kind !== "CREDIT_COST";
-  const showCredits = item.kind !== "EDITORIAL_TIER";
-  const showFeatures = ["BOOK", "SUBSCRIPTION", "EDITORIAL_TIER"].includes(item.kind);
+  const isFree = item.kind === "FREE";
+  const showPrice = item.kind !== "CREDIT_COST" && !isFree;
+  const showCredits = item.kind !== "EDITORIAL_TIER" && !isFree;
+  const showFeatures = ["FREE", "BOOK", "SUBSCRIPTION", "EDITORIAL_TIER"].includes(item.kind);
 
   return (
     <div className={`grid items-start gap-2 rounded-xl border p-3 md:grid-cols-[1.3fr_90px_90px_90px_1.5fr_auto] ${d.active ? "border-slate-800 bg-slate-900" : "border-slate-800 bg-slate-950 opacity-60"}`}>
@@ -52,7 +56,7 @@ const Row: React.FC<{ item: CatalogItem; onSave: (patch: Partial<CatalogItem>) =
         <div className="mt-1 font-mono text-[10px] text-slate-500">{item.code}</div>
       </div>
       <div>{showPrice && <><label className="text-[10px] text-slate-500">{item.kind === "EDITORIAL_TIER" ? "Desde US$" : "US$"}</label><input className={input} type="number" min="0" step="0.01" value={d.price} onChange={(e) => setD({ ...d, price: e.target.value })} /></>}</div>
-      <div>{item.kind === "EDITORIAL_TIER" && <><label className="text-[10px] text-slate-500">Hasta US$</label><input className={input} type="number" min="0" step="0.01" value={d.max} onChange={(e) => setD({ ...d, max: e.target.value })} /></>}</div>
+      <div>{isFree && <><label className="text-[10px] text-slate-500">Palabras incluidas</label><input className={input} type="number" min="0" step="500" value={d.maxWords} onChange={(e) => setD({ ...d, maxWords: e.target.value })} /></>}{item.kind === "EDITORIAL_TIER" && <><label className="text-[10px] text-slate-500">Hasta US$</label><input className={input} type="number" min="0" step="0.01" value={d.max} onChange={(e) => setD({ ...d, max: e.target.value })} /></>}</div>
       <div>{showCredits && <><label className="text-[10px] text-slate-500">Créditos</label><input className={input} type="number" min="0" step="1" value={d.credits} onChange={(e) => setD({ ...d, credits: e.target.value })} /></>}
         {item.kind === "CREDIT_PACK" && <div className="mt-1 text-[10px] text-slate-500">{formatUsd(pricePerCredit({ price_usd: num(d.price), credits: num(d.credits) }), { decimals: true })}/crédito</div>}
       </div>
@@ -73,6 +77,7 @@ const Row: React.FC<{ item: CatalogItem; onSave: (patch: Partial<CatalogItem>) =
                 credits: showCredits ? num(d.credits) : item.credits,
                 features: showFeatures ? d.features.split("\n").map((f) => f.trim()).filter(Boolean) : item.features,
                 active: d.active,
+                ...(isFree ? { limits: { ...item.limits, max_words: num(d.maxWords) ?? 0 } } : {}),
               });
             } finally {
               setBusy(false);
@@ -143,7 +148,7 @@ const PricingAdmin: React.FC = () => {
         )}
       </div>
     );
-  const kinds: CatalogKind[] = ["BOOK", "SUBSCRIPTION", "CREDIT_PACK", "EDITORIAL_TIER", "CREDIT_COST"];
+  const kinds: CatalogKind[] = ["FREE", "BOOK", "SUBSCRIPTION", "CREDIT_PACK", "EDITORIAL_TIER", "CREDIT_COST"];
 
   return (
     <div className="space-y-8">

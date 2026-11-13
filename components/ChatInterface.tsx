@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatMessage } from '../types';
 import { UserIcon, BotIcon, SendIcon, AlertTriangleIcon } from './Icons';
+import PromptPlanner from './PromptPlanner';
 
 interface ChatInterfaceProps {
   messages: ChatMessage[];
@@ -19,6 +20,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   error,
 }) => {
   const [inputText, setInputText] = useState('');
+  const [plannerOpen, setPlannerOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -85,6 +87,34 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 <span>{error}</span>
             </div>
         )}
+        {plannerOpen ? (
+          <div className="mb-3">
+            <PromptPlanner
+              disabled={isLoading}
+              onClose={() => setPlannerOpen(false)}
+              onUse={(prompt) => {
+                setPlannerOpen(false);
+                onSendMessage(prompt);
+              }}
+              onEdit={(prompt) => {
+                setPlannerOpen(false);
+                setInputText(prompt);
+              }}
+            />
+          </div>
+        ) : (
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <button
+              type="button"
+              onClick={() => setPlannerOpen(true)}
+              disabled={isLoading}
+              className="rounded-lg bg-indigo-600 px-3 py-1.5 font-black uppercase tracking-widest text-white hover:bg-indigo-500 disabled:opacity-50"
+            >
+              🧭 Planificador de prompt
+            </button>
+            <span>Responde unas preguntas y armamos el encargo de tu libro. También puedes pegar tu propio prompt abajo.</span>
+          </div>
+        )}
         <form onSubmit={handleSend} className="relative">
           <textarea
             value={inputText}
@@ -92,7 +122,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             onKeyDown={handleKeyDown}
             placeholder="Escribe tu comando aquí... (ej. NUEVO LIBRO: una guía sobre...)"
             className="w-full bg-slate-700 text-slate-100 rounded-lg p-3 pr-20 resize-none border border-slate-600 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-200"
-            rows={Math.min(5, inputText.split('\n').length)}
+            rows={Math.min(8, Math.max(1, inputText.split('\n').length))}
             disabled={isLoading}
           />
           <button

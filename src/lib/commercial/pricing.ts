@@ -1,7 +1,7 @@
 // Pricing Engine — cálculos puros. Los PRECIOS no están aquí: vienen de
 // pricing_catalog / pricing_settings (Supabase), editables desde el panel.
 
-export type CatalogKind = "BOOK" | "CREDIT_PACK" | "SUBSCRIPTION" | "EDITORIAL_TIER" | "CREDIT_COST";
+export type CatalogKind = "FREE" | "BOOK" | "CREDIT_PACK" | "SUBSCRIPTION" | "EDITORIAL_TIER" | "CREDIT_COST";
 
 export type CatalogItem = {
   code: string;

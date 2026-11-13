@@ -747,12 +747,14 @@ async function callDossierJsonDev(opts: ComposerCallOpts): Promise<EngineResult>
 export function parseComposerHttpResponse(raw: string, status: number): EngineResult {
   if (status < 200 || status >= 300) {
     let detail = "";
+    let code: string | undefined;
     try {
       const data = JSON.parse(raw);
       detail = ensureString(data?.error, ensureString(data?.needs_input?.message, ensureString(data?.message, "")));
+      code = typeof data?.code === "string" ? data.code : undefined;
     } catch { /* Platform failures can be plain text or HTML, never model JSON. */ }
     const reason = raw.includes("FUNCTION_INVOCATION_FAILED") ? "La función de generación no pudo iniciarse." : raw.includes("FUNCTION_INVOCATION_TIMEOUT") ? "El servidor agotó el tiempo de generación." : "El servidor no pudo completar la generación.";
-    throw new Error(detail || `${reason} HTTP ${status}. El contenido guardado se conserva.`);
+    throw Object.assign(new Error(detail || `${reason} HTTP ${status}. El contenido guardado se conserva.`), { code, status });
   }
   return validateEngineResult(safeJsonParse(raw));
 }

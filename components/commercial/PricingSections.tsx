@@ -72,9 +72,10 @@ type ModalityKey = "A" | "B" | "C" | "D";
  * descripción y su botón. Filtro por categoría arriba.
  * ------------------------------------------------------------------------ */
 
-export type PricingCategory = "BOOK" | "CREDIT_PACK" | "SUBSCRIPTION" | "EDITORIAL_TIER";
+export type PricingCategory = "FREE" | "BOOK" | "CREDIT_PACK" | "SUBSCRIPTION" | "EDITORIAL_TIER";
 
-const CATEGORIES: Array<{ kind: PricingCategory; label: string; unit: string; modality: ModalityKey }> = [
+const CATEGORIES: Array<{ kind: PricingCategory; label: string; unit: string; modality: ModalityKey | null }> = [
+  { kind: "FREE", label: "Plan gratis", unit: "sin tarjeta", modality: null },
   { kind: "BOOK", label: "Crea tu libro", unit: "pago único", modality: "A" },
   { kind: "CREDIT_PACK", label: "Créditos", unit: "sin suscripción", modality: "C" },
   { kind: "SUBSCRIPTION", label: "Suscripciones", unit: "al mes", modality: "B" },
@@ -96,16 +97,23 @@ export function cardLines(item: CatalogItem): string[] {
   return lines.slice(0, 4);
 }
 
-const ProductCard: React.FC<{ item: CatalogItem; unit: string; highlight?: boolean; onRequest?: () => void }> = ({ item, unit, highlight, onRequest }) => {
+const ProductCard: React.FC<{ item: CatalogItem; unit: string; highlight?: boolean; onRequest?: () => void; onStartFree?: () => void }> = ({
+  item,
+  unit,
+  highlight,
+  onRequest,
+  onStartFree,
+}) => {
   const buy = React.useContext(BuyContext);
   const editorial = item.kind === "EDITORIAL_TIER";
+  const free = item.kind === "FREE";
   return (
     <div className={`flex flex-col rounded-2xl border p-4 ${highlight ? "border-amber-400/60 bg-amber-500/10" : "border-slate-800 bg-slate-900"}`}>
       {highlight && <div className="mb-1 text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">Más elegido</div>}
       <div className="text-sm font-black text-white">{item.name}</div>
       <div className="mt-1 flex items-baseline gap-1">
         <span className="text-2xl font-black text-white">
-          {formatUsd(item.price_usd)}
+          {free ? "Gratis" : formatUsd(item.price_usd)}
           {editorial && item.max_price_usd ? <span className="text-base"> – {formatUsd(item.max_price_usd)}</span> : null}
         </span>
         <span className="text-[11px] text-slate-400">{unit}</span>
@@ -117,7 +125,11 @@ const ProductCard: React.FC<{ item: CatalogItem; unit: string; highlight?: boole
         ))}
       </ul>
       <div className="mt-auto pt-4">
-        {editorial ? (
+        {free ? (
+          <button type="button" onClick={onStartFree} disabled={!onStartFree} className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-950 hover:bg-emerald-400 disabled:opacity-60">
+            Empezar gratis
+          </button>
+        ) : editorial ? (
           <button type="button" onClick={onRequest} className="w-full rounded-xl bg-amber-500 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-950 hover:bg-amber-400">
             Solicitar cotización
           </button>
@@ -140,8 +152,9 @@ export const PricingCards: React.FC<{
   items: CatalogItem[];
   only?: PricingCategory;
   onRequestEditorial?: () => void;
+  onStartFree?: () => void;
   title?: string;
-}> = ({ items, only, onRequestEditorial, title = "Precios" }) => {
+}> = ({ items, only, onRequestEditorial, onStartFree, title = "Precios" }) => {
   const available = CATEGORIES.filter((c) => (!only || c.kind === only) && byKind(items, c.kind).length);
   const [filter, setFilter] = React.useState<PricingCategory | "ALL">("ALL");
   if (!available.length) return null;
@@ -170,7 +183,7 @@ export const PricingCards: React.FC<{
             {!only && <div className="mb-2 text-sm font-black text-amber-200">{c.label}</div>}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {rows.map((r, i) => (
-                <ProductCard key={r.code} item={r} unit={c.unit} highlight={c.kind === "SUBSCRIPTION" && i === 1} onRequest={onRequestEditorial} />
+                <ProductCard key={r.code} item={r} unit={c.unit} highlight={c.kind === "SUBSCRIPTION" && i === 1} onRequest={onRequestEditorial} onStartFree={onStartFree} />
               ))}
             </div>
           </div>

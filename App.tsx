@@ -52,6 +52,8 @@ import { useAccessGate } from "./src/hooks/useAccessGate";
 import { getMyStaffRoles, type StaffRole } from "./src/data/editorialRepo";
 import { useProjects } from "./src/hooks/useProjects";
 import { useUserSettings } from "./src/hooks/useUserSettings";
+import { isUpgradeError, useFreePlanUsage } from "./src/hooks/useFreePlanUsage";
+import { FREE_PLAN_UPGRADE_TEXT, FreePlanBanner, UpgradeModal } from "./components/FreePlan";
 import { REGENERATE_CONFIRM_MESSAGE, generatedProgress, isBookComplete, sectionIsGenerated } from "./src/lib/bookCompletion";
 import {
   persistProjectMeta,
@@ -139,6 +141,16 @@ const App: React.FC = () => {
   }, [session?.user?.id]);
   const isStaff = staffRoles.length > 0;
 
+  // Plan gratis: usuario registrado sin plan de pago. Solo puede crear el
+  // expediente (título y capítulos); lo demás pide elegir un plan.
+  const isFreePlan = Boolean(profile) && !profile?.has_access;
+  const isFreePlanRef = useRef(isFreePlan);
+  isFreePlanRef.current = isFreePlan;
+  const [upgradeReason, setUpgradeReason] = useState<string | null>(null);
+  const freeUsage = useFreePlanUsage(isFreePlan);
+  const freeUsageRef = useRef(freeUsage);
+  freeUsageRef.current = freeUsage;
+
   // libros del usuario
   const {
     projects,
@@ -155,9 +167,10 @@ const App: React.FC = () => {
     handleDeleteProject,
     clearActiveProject,
   } = useProjects({
-    hasAccess: Boolean(profile?.has_access),
+    hasAccess: Boolean(profile),
     setError,
     onLegacyRepaired: (projectId) => {
+      if (isFreePlanRef.current) return;
       fullBookAutostartRef.current = projectId;
       setAutostartSignal((value) => value + 1);
     },
@@ -174,11 +187,11 @@ const App: React.FC = () => {
     enterHere,
     releaseDevice,
     resetDeviceState,
-  } = useDeviceSession(session?.user?.id, Boolean(profile?.has_access));
+  } = useDeviceSession(session?.user?.id, Boolean(profile));
 
   // global chapter setting
   const { defaultChapterWords, setDefaultChapterWords, savingSettings, saveSettings } = useUserSettings({
-    enabled: Boolean(session && profile?.has_access),
+    enabled: Boolean(session && profile),
     userId: session?.user?.id,
     setError,
   });
@@ -335,16 +348,22 @@ const App: React.FC = () => {
       ];
       setProjects(projectsRef.current);
       setActiveProjectId(updatedWithMaster.id);
-      fullBookAutostartRef.current = updatedWithMaster.id;
+      if (isFreePlanRef.current) freeUsageRef.current.refresh();
+      else fullBookAutostartRef.current = updatedWithMaster.id;
       setViewMode("plan");
 
       const now = Date.now();
       setMessages((prev) => [
         ...prev,
         { id: `user-${now}`, role: "user", content: idea },
-        { id: `ai-${now + 1}`, role: "model", content: `Expediente generado para **${updatedWithMaster.title}**.` },
+        {
+          id: `ai-${now + 1}`,
+          role: "model",
+          content: `Expediente generado para **${updatedWithMaster.title}**.${isFreePlanRef.current ? `\n\n${FREE_PLAN_UPGRADE_TEXT}` : ""}`,
+        },
       ]);
     } catch (e) {
+      if (isUpgradeError(e)) setUpgradeReason(normalizeError(e));
       setError(normalizeError(e));
     } finally {
       setIsLoading(false);
@@ -352,6 +371,10 @@ const App: React.FC = () => {
   }, [persistProjectMeta, rebuildAndSnapshotMaster, upsertOneSectionFromState]);
 
   const generateSectionCore = useCallback(async (action: string, chapterNum?: number, opts?: { bypassLock?: boolean }) => {
+    if (isFreePlanRef.current) {
+      setUpgradeReason(FREE_PLAN_UPGRADE_TEXT);
+      return false;
+    }
     const proj = projectsRef.current.find((p) => p.id === activeProjectId);
     if (!proj) return false;
 
@@ -495,6 +518,10 @@ const targetWords =
   // Único orquestador del libro completo: propuesta -> introducción -> capítulos.
   // Reintenta fallos transitorios y solo declara terminado cuando no queda nada pendiente.
   const handleGenerateRemaining = useCallback(async () => {
+    if (isFreePlanRef.current) {
+      setUpgradeReason(FREE_PLAN_UPGRADE_TEXT);
+      return;
+    }
     if (globalGenLockRef.current || anyGenerating) return;
     globalGenLockRef.current = true;
 
@@ -781,7 +808,7 @@ const targetWords =
     );
   }
 
-  if (!profile || !profile.has_access) {
+  if (!profile) {
     const em = profile?.email || session?.user?.email || "";
     return (
       <AccessProcessingScreen
@@ -909,6 +936,7 @@ const targetWords =
         </aside>
 
         <main className="flex-1 min-w-0 min-h-0 flex flex-col bg-slate-950">
+          {isFreePlan && <FreePlanBanner usage={freeUsage} onUpgrade={() => setCommercialView("services")} />}
           {activeProject && (
             <div className="shrink-0 bg-slate-900 border-b border-slate-800 flex">
               <button
@@ -1007,6 +1035,16 @@ const targetWords =
           </div>
         </main>
       </div>
+      {upgradeReason && (
+        <UpgradeModal
+          reason={upgradeReason}
+          onClose={() => setUpgradeReason(null)}
+          onUpgrade={() => {
+            setUpgradeReason(null);
+            setCommercialView("services");
+          }}
+        />
+      )}
     </div>
   );
 };

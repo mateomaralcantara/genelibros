@@ -154,7 +154,7 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
               </button>
             ))}
           </div>
-          <PricingCards items={catalog} onRequestEditorial={() => setPage("D_FORM")} />
+          <PricingCards items={catalog} onRequestEditorial={() => setPage("D_FORM")} onStartFree={onBack} />
         </div>
       )}
 
