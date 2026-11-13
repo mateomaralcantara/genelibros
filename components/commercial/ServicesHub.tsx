@@ -89,8 +89,14 @@ const ModalityPage: React.FC<{ title: string; intro: string; features: string[];
 const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> = ({ onBack, onOpenAdmin }) => {
   const [page, setPage] = useState<Page>("hub");
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   useEffect(() => {
-    listCatalog().then(setCatalog).catch(() => setCatalog([]));
+    listCatalog()
+      .then((items) => {
+        setCatalog(items);
+        if (!items.length) setCatalogError("El catálogo de precios está vacío.");
+      })
+      .catch((e) => setCatalogError(e instanceof Error ? e.message : String(e)));
   }, []);
   const back = () => setPage("hub");
   const KIND_BY_MODALITY = { A: "BOOK", B: "SUBSCRIPTION", C: "CREDIT_PACK", D: "EDITORIAL_TIER" } as const;
@@ -113,6 +119,11 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
         )}
       </div>
 
+      {catalogError && (
+        <div className="mx-auto mb-6 max-w-5xl rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Los precios no están disponibles todavía. {onOpenAdmin ? `(${catalogError} — ejecuta en Supabase las migraciones 20261118 y 20261119.)` : ""}
+        </div>
+      )}
       {page === "hub" && (
         <div className="mx-auto max-w-5xl">
           <h1 className="text-4xl font-black text-white">¿Cómo quieres hacer tu libro?</h1>

@@ -129,7 +129,20 @@ const PricingAdmin: React.FC = () => {
     }
   };
 
-  if (!items) return <div className="text-sm text-slate-400">{error ?? "Cargando precios…"}</div>;
+  if (!items || !items.length)
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+        {error || items ? (
+          <>
+            No se pudo cargar el catálogo{error ? `: ${error}` : " (está vacío)"}.<br />
+            Ejecuta en Supabase → SQL Editor, en este orden: <code>20261118_roles_editorial_payments.sql</code> y{" "}
+            <code>20261119_pricing_catalog.sql</code>, y recarga.
+          </>
+        ) : (
+          "Cargando precios…"
+        )}
+      </div>
+    );
   const kinds: CatalogKind[] = ["BOOK", "SUBSCRIPTION", "CREDIT_PACK", "EDITORIAL_TIER", "CREDIT_COST"];
 
   return (
