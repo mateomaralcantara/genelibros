@@ -92,3 +92,29 @@ Renovación automática autorizada, vencimientos, cambios de plan, cancelaciones
 - Las modalidades A, B y C tienen página informativa pero aún **no se pueden comprar**.
 - No hay notificaciones por email: el equipo ve las solicitudes nuevas en el panel (filtro "Solicitud recibida").
 - Los importes de ejemplo que quedan en `subscription_plans` no se muestran en la interfaz.
+
+## Motor de precios (USD)
+
+Migración: `supabase/migrations/20261119_pricing_catalog.sql`. Ningún precio está en el código: las páginas
+leen `pricing_catalog` y el administrador los cambia en **Panel del equipo → Precios**. Cada cambio queda
+en `pricing_changes`. Re-ejecutar la migración no pisa los precios editados (`on conflict do nothing`).
+
+Valores iniciales (editables):
+
+| Modalidad | Producto | Precio | Créditos |
+|---|---|---|---|
+| A · Libro con un clic | Libro individual | US$15 | 150 |
+| C · Créditos | 100 / 275 / 600 / 1.300 créditos | US$10 / 25 / 50 / 100 | +0 / 10 / 20 / 30 % |
+| B · Suscripción (mes) | Autor Inicial / Profesional / Premium / Editorial | US$25 / 59 / 99 / 200 | 300 / 800 / 1.500 / 3.500 |
+| D · Servicio editorial | Guía → Especializado | US$100 – 2.000 | — |
+
+Consumo de créditos (1 crédito ≈ US$0,10): índice 10, capítulo 25, libro completo 150, investigación 40,
+reescritura 20, corrección 3/1.000 palabras, traducción 8/1.000 palabras, portada 30.
+
+**Cotizador editorial** (`pricing_settings.editorial_quote`): base por complejidad + tarifa por 1.000
+palabras + entrevistas + investigación + diagramación + portada + rondas de revisión, ×1,25 si es urgente,
+acotado entre el mínimo (US$100) y el máximo (US$2.000). En cada encargo, «Usar en la propuesta» rellena
+importe, moneda y desglose. Fórmula de margen disponible en `priceFromCost`: P = Costo / (1 − margen).
+
+Limitación actual: los botones de compra están desactivados («pronto») hasta integrar las pasarelas
+(fase 3); hoy se cobra por transferencia y el admin la registra manualmente.

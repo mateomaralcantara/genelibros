@@ -1,10 +1,13 @@
 // Centro comercial de LibroSeller: las cuatro modalidades, cada una con su
-// página. Sin precios en el código: los importes se configuran en el panel
-// administrativo (fase 2) o los fija el equipo en cada propuesta (Modalidad D).
+// página y sus precios. Sin precios en el código: se leen de pricing_catalog
+// (editable desde el panel del equipo → Precios).
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import EditorialRequestForm from "./EditorialRequestForm";
 import MyEditorialOrders from "./MyEditorialOrders";
+import { BookPrice, CreditPacks, EditorialTiers, PaymentsNote, SubscriptionPlans, fromPrice } from "./PricingSections";
+import { listCatalog } from "../../src/data/pricingRepo";
+import type { CatalogItem } from "../../src/lib/commercial/pricing";
 
 type Page = "hub" | "A" | "B" | "C" | "D" | "D_FORM" | "MY_ORDERS";
 
@@ -60,27 +63,37 @@ const EDITORIAL_FLOW = [
   "Te entregamos los archivos finales.",
 ];
 
-const ComingSoon: React.FC<{ title: string; features: string[]; onBack: () => void }> = ({ title, features, onBack }) => (
-  <div className="mx-auto max-w-3xl">
+const ModalityPage: React.FC<{ title: string; intro: string; features: string[]; onBack: () => void; children?: React.ReactNode }> = ({
+  title,
+  intro,
+  features,
+  onBack,
+  children,
+}) => (
+  <div className="mx-auto max-w-5xl">
     <button type="button" onClick={onBack} className="mb-6 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white">
       ← Volver a servicios
     </button>
-    <h2 className="text-3xl font-black text-white">{title}</h2>
-    <ul className="mt-6 space-y-2 text-sm text-slate-300">
+    <h2 className="text-4xl font-black text-white">{title}</h2>
+    <p className="mt-3 max-w-3xl text-slate-300">{intro}</p>
+    <ul className="mt-5 grid max-w-3xl gap-1.5 text-sm text-slate-300 sm:grid-cols-2">
       {features.map((f) => (
         <li key={f}>• {f}</li>
       ))}
     </ul>
-    <div className="mt-8 rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-5 text-sm text-indigo-100">
-      Esta modalidad estará disponible muy pronto. Los planes, créditos y precios se publicarán aquí en cuanto el
-      equipo los configure. Mientras tanto, puedes <strong>encargar tu libro a nuestro equipo editorial</strong>.
-    </div>
+    {children}
+    <PaymentsNote />
   </div>
 );
 
 const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> = ({ onBack, onOpenAdmin }) => {
   const [page, setPage] = useState<Page>("hub");
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  useEffect(() => {
+    listCatalog().then(setCatalog).catch(() => setCatalog([]));
+  }, []);
   const back = () => setPage("hub");
+  const KIND_BY_MODALITY = { A: "BOOK", B: "SUBSCRIPTION", C: "CREDIT_PACK", D: "EDITORIAL_TIER" } as const;
 
   return (
     <div className="min-h-full bg-slate-950 px-5 py-8 text-slate-100 md:px-10">
@@ -110,6 +123,12 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
                 <div className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-200/90">{m.tag}</div>
                 <div className={`mt-2 font-black text-white ${m.key === "D" ? "text-2xl" : "text-lg"}`}>{m.title}</div>
                 <p className="mt-2 text-sm text-slate-300">{m.text}</p>
+                {fromPrice(catalog, KIND_BY_MODALITY[m.key]) && (
+                  <div className="mt-3 text-sm font-black text-amber-200">
+                    {fromPrice(catalog, KIND_BY_MODALITY[m.key])}
+                    {m.key === "B" ? " /mes" : m.key === "A" ? " por libro" : ""}
+                  </div>
+                )}
               </button>
             ))}
           </div>
@@ -137,10 +156,7 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
               </li>
             ))}
           </ol>
-          <p className="mt-6 text-sm text-slate-400">
-            El precio es especial para cada proyecto: depende de la extensión, la investigación y los plazos. Te lo
-            enviamos en la propuesta, sin compromiso.
-          </p>
+          <EditorialTiers items={catalog} />
           <button type="button" onClick={() => setPage("D_FORM")} className={`${btn} mt-8 bg-amber-500 text-slate-950 hover:bg-amber-400`}>
             Solicitar mi libro
           </button>
@@ -151,8 +167,9 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
       {page === "MY_ORDERS" && <MyEditorialOrders onNewRequest={() => setPage("D")} />}
 
       {page === "A" && (
-        <ComingSoon
+        <ModalityPage
           title="Crea tu propio libro"
+          intro="Compra la generación de un libro y desarróllalo tú mismo, sin suscripción."
           onBack={back}
           features={[
             "Compra individual, sin suscripción.",
@@ -162,11 +179,14 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
             "Exportación en los formatos disponibles.",
             "Historial y almacenamiento del proyecto.",
           ]}
-        />
+        >
+          <BookPrice items={catalog} />
+        </ModalityPage>
       )}
       {page === "B" && (
-        <ComingSoon
+        <ModalityPage
           title="Suscripción de autor"
+          intro="Un plan mensual con créditos incluidos para producir libros de forma continua. Si se te acaban, compras créditos adicionales."
           onBack={back}
           features={[
             "Planes periódicos configurables.",
@@ -176,11 +196,14 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
             "Actualiza o cancela tu plan cuando quieras.",
             "Historial de consumo.",
           ]}
-        />
+        >
+          <SubscriptionPlans items={catalog} />
+        </ModalityPage>
       )}
       {page === "C" && (
-        <ComingSoon
+        <ModalityPage
           title="Créditos de producción"
+          intro="Compra créditos sin suscripción y úsalos cuando quieras. Cada operación consume según su complejidad."
           onBack={back}
           features={[
             "Paquetes de créditos sin suscripción.",
@@ -190,7 +213,9 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
             "Protección contra cobros duplicados.",
             "Reintegro de créditos si un fallo del sistema interrumpe el proceso.",
           ]}
-        />
+        >
+          <CreditPacks items={catalog} />
+        </ModalityPage>
       )}
     </div>
   );

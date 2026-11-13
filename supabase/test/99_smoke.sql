@@ -148,3 +148,34 @@ begin
   reset role;
 end $$;
 select 'EDITORIAL OK';
+
+-- ---------- Motor de precios (20261119) ----------
+grant select on public.pricing_catalog to anon;
+do $$
+declare n int; v numeric;
+begin
+  -- Público: ve los precios activos.
+  set local role anon;
+  select count(*) into n from public.pricing_catalog where kind = 'SUBSCRIPTION';
+  if n <> 4 then raise exception 'Precios públicos no visibles: %', n; end if;
+  reset role;
+
+  -- Cliente y editor: no pueden cambiar precios (0 filas).
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  update public.pricing_catalog set price_usd = 1 where code = 'BOOK_ONE_CLICK';
+  perform set_config('request.jwt.claim.sub', '77777777-7777-7777-7777-777777777777', true);
+  update public.pricing_catalog set price_usd = 1 where code = 'BOOK_ONE_CLICK';
+  select price_usd into v from public.pricing_catalog where code = 'BOOK_ONE_CLICK';
+  if v <> 15 then raise exception 'Un no-admin cambió un precio: %', v; end if;
+
+  -- Admin: cambia el precio y queda auditado.
+  perform set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', true);
+  update public.pricing_catalog set price_usd = 19 where code = 'BOOK_ONE_CLICK';
+  select price_usd into v from public.pricing_catalog where code = 'BOOK_ONE_CLICK';
+  if v <> 19 then raise exception 'El admin no pudo cambiar el precio'; end if;
+  select count(*) into n from public.pricing_changes where item_key = 'BOOK_ONE_CLICK' and changed_by = '66666666-6666-6666-6666-666666666666';
+  if n <> 1 then raise exception 'Cambio de precio sin auditoría'; end if;
+  reset role;
+end $$;
+select 'PRICING OK';

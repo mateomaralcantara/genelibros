@@ -18,6 +18,8 @@ import {
   type EditorialOrderDetail,
   type StaffMember,
 } from "../../src/data/editorialRepo";
+import EditorialQuoteCalculator from "./EditorialQuoteCalculator";
+import PricingAdmin from "./PricingAdmin";
 import { EDITORIAL_STAGES, EDITORIAL_STATUS_CODES, formatAmount, stageLabel } from "../../src/lib/commercial/editorialStatus";
 
 const input = "w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-sm text-slate-100";
@@ -105,6 +107,13 @@ const OrderAdmin: React.FC<{ orderId: string; isAdmin: boolean; staff: StaffMemb
 
       <div className={box}>
         <div className="text-xs font-black uppercase text-slate-400">Propuesta al cliente</div>
+        <div className="mt-2">
+          <EditorialQuoteCalculator
+            onUse={(amount, summary) =>
+              setProposal((p) => ({ amount: String(amount), currency: "USD", terms: p.terms.trim() ? p.terms : `Desglose estimado:\n${summary}` }))
+            }
+          />
+        </div>
         <div className="mt-2 grid gap-2 md:grid-cols-[1fr_120px]">
           <input className={input} type="number" min="0" step="0.01" placeholder="Importe" value={proposal.amount} onChange={(e) => setProposal({ ...proposal, amount: e.target.value })} />
           <input className={input} placeholder="Moneda (DOP, USD…)" value={proposal.currency} onChange={(e) => setProposal({ ...proposal, currency: e.target.value.toUpperCase() })} />
@@ -235,6 +244,7 @@ const AdminEditorialPanel: React.FC<{ isAdmin: boolean; onBack: () => void }> = 
   const [filter, setFilter] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"orders" | "pricing">("orders");
 
   useEffect(() => {
     listStaff().then(setStaff).catch(() => setStaff([]));
@@ -256,12 +266,19 @@ const AdminEditorialPanel: React.FC<{ isAdmin: boolean; onBack: () => void }> = 
           <>
             <div className="flex flex-wrap items-center gap-3">
               <button type="button" onClick={onBack} className={`${btn} bg-slate-800 text-slate-200`}>← Volver</button>
-              <h1 className="text-3xl font-black text-white">Encargos editoriales</h1>
-              <select className={`${input} ml-auto w-auto`} value={filter} onChange={(e) => setFilter(e.target.value)}>
+              <h1 className="text-3xl font-black text-white">{tab === "pricing" ? "Precios" : "Encargos editoriales"}</h1>
+              {isAdmin && (
+                <div className="flex gap-1">
+                  <button type="button" onClick={() => setTab("orders")} className={`${btn} ${tab === "orders" ? "bg-emerald-700 text-white" : "bg-slate-800 text-slate-300"}`}>Encargos</button>
+                  <button type="button" onClick={() => setTab("pricing")} className={`${btn} ${tab === "pricing" ? "bg-emerald-700 text-white" : "bg-slate-800 text-slate-300"}`}>Precios</button>
+                </div>
+              )}
+              {tab === "orders" && <select className={`${input} ml-auto w-auto`} value={filter} onChange={(e) => setFilter(e.target.value)}>
                 <option value="">Todos los estados</option>
                 {EDITORIAL_STATUS_CODES.map((c) => <option key={c} value={c}>{stageLabel(c)}</option>)}
-              </select>
+              </select>}
             </div>
+            {tab === "pricing" && isAdmin ? <div className="mt-6"><PricingAdmin /></div> : <>
             {error && <div className="mt-4 text-sm text-red-300">{error}</div>}
             {!orders && !error && <div className="mt-6 text-sm text-slate-400">Cargando…</div>}
             {orders && !orders.length && <div className="mt-6 text-sm text-slate-400">No hay encargos.</div>}
@@ -276,6 +293,7 @@ const AdminEditorialPanel: React.FC<{ isAdmin: boolean; onBack: () => void }> = 
                 </li>
               ))}
             </ul>
+            </>}
           </>
         )}
       </div>

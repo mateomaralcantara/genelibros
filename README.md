@@ -93,6 +93,7 @@ Guía completa: **[`supabase/README.md`](supabase/README.md)**.
 | `20261115_reconcile_shared_tables.sql` | Añade columnas que falten en `generation_jobs`, `research_sources` y `subscription_plans`, y quita dos restricciones que bloqueaban la cola OS4 |
 | `20261116_profiles_has_access_default_false.sql` | Los perfiles nuevos entran sin acceso por defecto (antes `true`) |
 | `20261118_roles_editorial_payments.sql` | Roles (admin/editor), encargos editoriales (Modalidad D) y núcleo de pagos. Ver [`docs/modelo-comercial.md`](docs/modelo-comercial.md) |
+| `20261119_pricing_catalog.sql` | Catálogo de precios en USD editable desde el panel (Precios), cotizador editorial e historial de cambios. Ver [`docs/modelo-comercial.md`](docs/modelo-comercial.md) |
 | `20261117_dedupe_singleton_sections.sql` | Una sola propuesta e introducción por libro: une duplicados (conserva la más reciente con texto y todo el historial) y lo impide en adelante |
 
 `.github/workflows/database-schema.yml` instala el esquema completo en un Postgres vacío en cada PR que toque SQL.
