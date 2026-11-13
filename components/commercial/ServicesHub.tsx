@@ -7,7 +7,7 @@ import EditorialRequestForm from "./EditorialRequestForm";
 import MyEditorialOrders from "./MyEditorialOrders";
 import CheckoutDialog, { type CheckoutTarget } from "./CheckoutDialog";
 import MyPayments from "./MyPayments";
-import { BookPrice, BuyContext, CreditPacks, EditorialTiers, PaymentsNote, PricingOverview, SubscriptionPlans, fromPrice } from "./PricingSections";
+import { BuyContext, CreditPacks, EditorialTiers, PaymentsNote, PricingCards, fromPrice } from "./PricingSections";
 import { listCatalog } from "../../src/data/pricingRepo";
 import type { CatalogItem } from "../../src/lib/commercial/pricing";
 
@@ -154,7 +154,7 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
               </button>
             ))}
           </div>
-          <PricingOverview items={catalog} onSelect={setPage} />
+          <PricingCards items={catalog} onRequestEditorial={() => setPage("D_FORM")} />
         </div>
       )}
 
@@ -179,11 +179,10 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
               </li>
             ))}
           </ol>
-          <EditorialTiers items={catalog} />
+          <EditorialTiers items={catalog} onRequest={() => setPage("D_FORM")} />
           <button type="button" onClick={() => setPage("D_FORM")} className={`${btn} mt-8 bg-amber-500 text-slate-950 hover:bg-amber-400`}>
             Solicitar mi libro
           </button>
-          <PricingOverview items={catalog} current="D" onSelect={setPage} />
         </div>
       )}
 
@@ -203,7 +202,6 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
 
       {page === "A" && (
         <ModalityPage
-          overview={<PricingOverview items={catalog} current="A" onSelect={setPage} />}
           title="Crea tu propio libro"
           intro="Compra la generación de un libro y desarróllalo tú mismo, sin suscripción."
           onBack={back}
@@ -216,12 +214,11 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
             "Historial y almacenamiento del proyecto.",
           ]}
         >
-          <BookPrice items={catalog} />
+          <PricingCards items={catalog} only="BOOK" />
         </ModalityPage>
       )}
       {page === "B" && (
         <ModalityPage
-          overview={<PricingOverview items={catalog} current="B" onSelect={setPage} />}
           title="Suscripción de autor"
           intro="Un plan mensual con créditos incluidos para producir libros de forma continua. Si se te acaban, compras créditos adicionales."
           onBack={back}
@@ -234,12 +231,11 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
             "Historial de consumo.",
           ]}
         >
-          <SubscriptionPlans items={catalog} />
+          <PricingCards items={catalog} only="SUBSCRIPTION" />
         </ModalityPage>
       )}
       {page === "C" && (
         <ModalityPage
-          overview={<PricingOverview items={catalog} current="C" onSelect={setPage} />}
           title="Créditos de producción"
           intro="Compra créditos sin suscripción y úsalos cuando quieras. Cada operación consume según su complejidad."
           onBack={back}

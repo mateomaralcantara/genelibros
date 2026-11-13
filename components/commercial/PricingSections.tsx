@@ -10,59 +10,15 @@ const PAYMENTS_NOTE =
 /** Lo provee ServicesHub: abre la ventana de pago del producto. */
 export const BuyContext = React.createContext<((item: CatalogItem) => void) | null>(null);
 
-const Check: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <li className="flex gap-2"><span className="text-emerald-300">✓</span><span>{children}</span></li>
-);
-
-const BuyButton: React.FC<{ label: string; item: CatalogItem }> = ({ label, item }) => {
-  const buy = React.useContext(BuyContext);
-  return (
-    <button
-      type="button"
-      disabled={!buy}
-      onClick={() => buy?.(item)}
-      className="mt-5 w-full rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
-    >
-      {label}
-    </button>
-  );
-};
-
 export const PaymentsNote: React.FC = () => (
   <p className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-4 text-xs text-slate-400">{PAYMENTS_NOTE}</p>
 );
 
-export const BookPrice: React.FC<{ items: CatalogItem[] }> = ({ items }) => {
-  const book = byKind(items, "BOOK")[0];
-  if (!book) return null;
-  return (
-    <div className="mt-8 max-w-md rounded-2xl border border-indigo-400/40 bg-indigo-500/10 p-6">
-      <div className="text-sm font-black text-indigo-200">{book.name}</div>
-      <div className="mt-2 text-5xl font-black text-white">{formatUsd(book.price_usd)}</div>
-      <div className="text-xs text-slate-400">por libro · pago único</div>
-      <ul className="mt-4 space-y-1.5 text-sm text-slate-200">{book.features.map((f) => <Check key={f}>{f}</Check>)}</ul>
-      <BuyButton label="Comprar mi libro" item={book} />
-    </div>
-  );
-};
-
 export const CreditPacks: React.FC<{ items: CatalogItem[] }> = ({ items }) => {
-  const packs = byKind(items, "CREDIT_PACK");
   const costs = byKind(items, "CREDIT_COST");
   return (
     <>
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {packs.map((p) => (
-          <div key={p.code} className="rounded-2xl border border-slate-700 bg-slate-900 p-5">
-            <div className="text-sm font-black text-slate-200">{p.name}</div>
-            <div className="mt-2 text-3xl font-black text-white">{formatUsd(p.price_usd)}</div>
-            <div className="mt-1 text-sm text-amber-200">{(p.credits ?? 0).toLocaleString("es-DO")} créditos</div>
-            {Number(p.limits?.bonus_percent) > 0 && <div className="mt-1 text-xs font-bold text-emerald-300">+{p.limits.bonus_percent} % de regalo</div>}
-            <div className="mt-1 text-[11px] text-slate-500">{formatUsd(pricePerCredit(p), { decimals: true })} por crédito</div>
-            <BuyButton label="Comprar" item={p} />
-          </div>
-        ))}
-      </div>
+      <PricingCards items={items} only="CREDIT_PACK" />
       {costs.length > 0 && (
         <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <div className="text-xs font-black uppercase tracking-widest text-slate-400">Cuánto consume cada operación</div>
@@ -84,48 +40,12 @@ export const CreditPacks: React.FC<{ items: CatalogItem[] }> = ({ items }) => {
   );
 };
 
-export const SubscriptionPlans: React.FC<{ items: CatalogItem[] }> = ({ items }) => {
-  const plans = byKind(items, "SUBSCRIPTION");
+export const EditorialTiers: React.FC<{ items: CatalogItem[]; onRequest?: () => void }> = ({ items, onRequest }) => {
+  if (!byKind(items, "EDITORIAL_TIER").length) return null;
   return (
-    <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {plans.map((p, i) => (
-        <div key={p.code} className={`rounded-2xl border p-5 ${i === 1 ? "border-amber-400/50 bg-amber-500/10" : "border-slate-700 bg-slate-900"}`}>
-          {i === 1 && <div className="mb-2 text-[10px] font-black uppercase tracking-[0.25em] text-amber-200">Más elegido</div>}
-          <div className="text-sm font-black text-slate-100">{p.name}</div>
-          <div className="mt-2 text-3xl font-black text-white">
-            {formatUsd(p.price_usd)}
-            <span className="text-sm font-bold text-slate-400">/{p.billing_interval === "year" ? "año" : "mes"}</span>
-          </div>
-          {p.description && <p className="mt-1 text-xs text-slate-400">{p.description}</p>}
-          <ul className="mt-4 space-y-1.5 text-sm text-slate-200">{p.features.map((f) => <Check key={f}>{f}</Check>)}</ul>
-          <BuyButton label="Suscribirme" item={p} />
-        </div>
-      ))}
-    </div>
-  );
-};
-
-export const EditorialTiers: React.FC<{ items: CatalogItem[] }> = ({ items }) => {
-  const tiers = byKind(items, "EDITORIAL_TIER");
-  if (!tiers.length) return null;
-  return (
-    <div className="mt-8 rounded-2xl border border-amber-400/30 bg-slate-900 p-5">
+    <div className="mt-8">
       <div className="text-xs font-black uppercase tracking-widest text-amber-200">Precio orientativo por proyecto</div>
-      <table className="mt-3 w-full text-sm">
-        <tbody>
-          {tiers.map((t) => (
-            <tr key={t.code} className="border-t border-slate-800 align-top">
-              <td className="py-3 pr-3">
-                <div className="font-black text-white">{t.name}</div>
-                {t.description && <div className="text-xs text-slate-400">{t.description}</div>}
-              </td>
-              <td className="whitespace-nowrap py-3 text-right font-black text-amber-200">
-                {formatUsd(t.price_usd)}{t.max_price_usd ? ` – ${formatUsd(t.max_price_usd)}` : "+"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <PricingCards items={items} only="EDITORIAL_TIER" onRequestEditorial={onRequest} />
       <p className="mt-3 text-xs text-slate-400">
         Cada libro es distinto: el precio final depende de la extensión, las entrevistas, la investigación, el diseño y
         el plazo. Te enviamos una propuesta personalizada y sin compromiso.
@@ -147,72 +67,115 @@ export function fromPrice(items: CatalogItem[], kind: CatalogItem["kind"]): stri
 
 type ModalityKey = "A" | "B" | "C" | "D";
 
-const OVERVIEW: Array<{ key: ModalityKey; kind: CatalogItem["kind"]; title: string; unit: string }> = [
-  { key: "A", kind: "BOOK", title: "Crea tu libro", unit: "pago único" },
-  { key: "C", kind: "CREDIT_PACK", title: "Créditos", unit: "sin suscripción" },
-  { key: "B", kind: "SUBSCRIPTION", title: "Suscripción", unit: "al mes" },
-  { key: "D", kind: "EDITORIAL_TIER", title: "Lo hacemos nosotros", unit: "por proyecto" },
+/* --------------------------------------------------------------------------
+ * Tarjetas por categoría: cada producto en una tarjeta compacta con su
+ * descripción y su botón. Filtro por categoría arriba.
+ * ------------------------------------------------------------------------ */
+
+export type PricingCategory = "BOOK" | "CREDIT_PACK" | "SUBSCRIPTION" | "EDITORIAL_TIER";
+
+const CATEGORIES: Array<{ kind: PricingCategory; label: string; unit: string; modality: ModalityKey }> = [
+  { kind: "BOOK", label: "Crea tu libro", unit: "pago único", modality: "A" },
+  { kind: "CREDIT_PACK", label: "Créditos", unit: "sin suscripción", modality: "C" },
+  { kind: "SUBSCRIPTION", label: "Suscripciones", unit: "al mes", modality: "B" },
+  { kind: "EDITORIAL_TIER", label: "Lo hacemos nosotros", unit: "por proyecto", modality: "D" },
 ];
 
-function overviewPrice(item: CatalogItem): string {
-  if (item.kind === "EDITORIAL_TIER") return `${formatUsd(item.price_usd)}${item.max_price_usd ? ` – ${formatUsd(item.max_price_usd)}` : "+"}`;
-  return formatUsd(item.price_usd);
+/** Líneas de descripción de una tarjeta (máx. 4), a partir del catálogo. */
+export function cardLines(item: CatalogItem): string[] {
+  if (item.features.length) return item.features.slice(0, 4);
+  const lines: string[] = [];
+  if (item.description) lines.push(item.description);
+  if (item.kind === "CREDIT_PACK") {
+    if (item.credits) lines.push(`${item.credits.toLocaleString("es-DO")} créditos`);
+    if (Number(item.limits?.bonus_percent) > 0) lines.push(`+${item.limits.bonus_percent} % de regalo`);
+    const per = pricePerCredit(item);
+    if (per != null) lines.push(`${formatUsd(per, { decimals: true })} por crédito`);
+    lines.push("No caducan con el mes");
+  }
+  return lines.slice(0, 4);
 }
 
-function overviewDetail(item: CatalogItem): string | null {
-  if (item.kind === "CREDIT_PACK" || item.kind === "BOOK") return item.credits ? `${item.credits.toLocaleString("es-DO")} créditos` : null;
-  if (item.kind === "SUBSCRIPTION") return item.credits ? `${item.credits.toLocaleString("es-DO")} créditos/mes` : null;
-  return null;
-}
-
-export const PricingOverview: React.FC<{
-  items: CatalogItem[];
-  current?: ModalityKey;
-  onSelect?: (key: ModalityKey) => void;
-}> = ({ items, current, onSelect }) => {
-  const groups = OVERVIEW.map((g) => ({ ...g, rows: byKind(items, g.kind) })).filter((g) => g.rows.length);
-  if (!groups.length) return null;
+const ProductCard: React.FC<{ item: CatalogItem; unit: string; highlight?: boolean; onRequest?: () => void }> = ({ item, unit, highlight, onRequest }) => {
+  const buy = React.useContext(BuyContext);
+  const editorial = item.kind === "EDITORIAL_TIER";
   return (
-    <section className="mt-10">
-      <div className="text-xs font-black uppercase tracking-widest text-slate-400">Todos los precios</div>
-      <div className={`mt-3 grid gap-3 sm:grid-cols-2 ${current === "D" ? "" : "lg:grid-cols-4"}`}>
-        {groups.map((g) => {
-          const active = g.key === current;
-          return (
-            <div
-              key={g.key}
-              className={`flex flex-col rounded-2xl border p-4 ${active ? "border-amber-400/60 bg-amber-500/10" : "border-slate-800 bg-slate-900"}`}
-            >
-              <div className="flex items-baseline justify-between gap-2">
-                <div className="text-sm font-black text-white">{g.title}</div>
-                <div className="text-[10px] uppercase tracking-widest text-slate-500">{g.unit}</div>
-              </div>
-              <table className="mt-3 w-full text-xs">
-                <tbody>
-                  {g.rows.map((r) => (
-                    <tr key={r.code} className="border-t border-slate-800 align-top">
-                      <td className="py-1.5 pr-2 text-slate-300">
-                        {r.name}
-                        {overviewDetail(r) && <div className="text-[10px] text-slate-500">{overviewDetail(r)}</div>}
-                      </td>
-                      <td className="whitespace-nowrap py-1.5 text-right font-black text-amber-200">{overviewPrice(r)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {onSelect && !active && (
-                <button
-                  type="button"
-                  onClick={() => onSelect(g.key)}
-                  className="mt-auto pt-3 text-left text-[11px] font-black uppercase tracking-widest text-indigo-300 hover:text-indigo-200"
-                >
-                  Ver detalles →
-                </button>
-              )}
-            </div>
-          );
-        })}
+    <div className={`flex flex-col rounded-2xl border p-4 ${highlight ? "border-amber-400/60 bg-amber-500/10" : "border-slate-800 bg-slate-900"}`}>
+      {highlight && <div className="mb-1 text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">Más elegido</div>}
+      <div className="text-sm font-black text-white">{item.name}</div>
+      <div className="mt-1 flex items-baseline gap-1">
+        <span className="text-2xl font-black text-white">
+          {formatUsd(item.price_usd)}
+          {editorial && item.max_price_usd ? <span className="text-base"> – {formatUsd(item.max_price_usd)}</span> : null}
+        </span>
+        <span className="text-[11px] text-slate-400">{unit}</span>
       </div>
+      {item.kind === "SUBSCRIPTION" && item.credits ? <div className="text-[11px] text-amber-200">{item.credits.toLocaleString("es-DO")} créditos/mes</div> : null}
+      <ul className="mt-3 space-y-1 text-xs text-slate-300">
+        {cardLines(item).map((l) => (
+          <li key={l} className="flex gap-1.5"><span className="text-emerald-300">✓</span><span>{l}</span></li>
+        ))}
+      </ul>
+      <div className="mt-auto pt-4">
+        {editorial ? (
+          <button type="button" onClick={onRequest} className="w-full rounded-xl bg-amber-500 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-950 hover:bg-amber-400">
+            Solicitar cotización
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={!buy}
+            onClick={() => buy?.(item)}
+            className="w-full rounded-xl bg-amber-500 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-slate-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+          >
+            {item.kind === "SUBSCRIPTION" ? "Suscribirme" : "Comprar"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export const PricingCards: React.FC<{
+  items: CatalogItem[];
+  only?: PricingCategory;
+  onRequestEditorial?: () => void;
+  title?: string;
+}> = ({ items, only, onRequestEditorial, title = "Precios" }) => {
+  const available = CATEGORIES.filter((c) => (!only || c.kind === only) && byKind(items, c.kind).length);
+  const [filter, setFilter] = React.useState<PricingCategory | "ALL">("ALL");
+  if (!available.length) return null;
+  const shown = available.filter((c) => filter === "ALL" || c.kind === filter);
+  return (
+    <section className="mt-8">
+      {!only && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="mr-2 text-xs font-black uppercase tracking-widest text-slate-400">{title}</div>
+          {[{ kind: "ALL" as const, label: "Todos" }, ...available].map((c) => (
+            <button
+              key={c.kind}
+              type="button"
+              onClick={() => setFilter(c.kind)}
+              className={`rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-widest transition ${filter === c.kind ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {shown.map((c) => {
+        const rows = byKind(items, c.kind);
+        return (
+          <div key={c.kind} className="mt-5">
+            {!only && <div className="mb-2 text-sm font-black text-amber-200">{c.label}</div>}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {rows.map((r, i) => (
+                <ProductCard key={r.code} item={r} unit={c.unit} highlight={c.kind === "SUBSCRIPTION" && i === 1} onRequest={onRequestEditorial} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 };
