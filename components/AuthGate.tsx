@@ -24,6 +24,12 @@ export const AuthScreen: React.FC<{
 
   error: string | null;
   notice: string | null;
+
+  /** "modal": ventana sobre la app (visitantes); "page": pantalla completa. */
+  variant?: "page" | "modal";
+  heading?: string;
+  subheading?: string;
+  onClose?: () => void;
 }> = ({
   buildTag,
   mode,
@@ -40,16 +46,38 @@ export const AuthScreen: React.FC<{
   onSubmit,
   error,
   notice,
+  variant = "page",
+  heading,
+  subheading,
+  onClose,
 }) => {
+  const modal = variant === "modal";
   return (
-    <div className="min-h-screen w-full bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+    <div
+      className={
+        modal
+          ? "fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 text-slate-100"
+          : "min-h-screen w-full bg-slate-950 text-slate-100 flex items-center justify-center p-6"
+      }
+      role={modal ? "dialog" : undefined}
+      aria-modal={modal ? true : undefined}
+    >
       <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div className="flex items-center gap-3">
           <PenSquareIcon className="w-8 h-8 text-indigo-400" />
-          <div className="min-w-0">
-            <h1 className="text-2xl font-black tracking-tight text-white truncate">BestSeller</h1>
-            <div className="text-[10px] text-slate-500 font-mono truncate">{buildTag}</div>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-black tracking-tight text-white truncate">{heading ?? "BestSeller"}</h1>
+            {subheading ? (
+              <div className="text-xs text-slate-400">{subheading}</div>
+            ) : (
+              <div className="text-[10px] text-slate-500 font-mono truncate">{buildTag}</div>
+            )}
           </div>
+          {onClose && (
+            <button type="button" onClick={onClose} className="self-start text-2xl leading-none text-slate-400 hover:text-white" aria-label="Cerrar">
+              ×
+            </button>
+          )}
         </div>
 
         <div className="mt-6 grid grid-cols-2 gap-2">
@@ -130,9 +158,11 @@ export const AuthScreen: React.FC<{
           )}
         </div>
 
-        <div className="mt-4 text-[11px] text-slate-400 leading-snug">
-          * Para que “Crear cuenta” entre directo a <b>Procesando</b>, en Supabase pon <b>Confirm email = OFF</b>.
-        </div>
+        {!modal && (
+          <div className="mt-4 text-[11px] text-slate-400 leading-snug">
+            * Para que “Crear cuenta” entre directo a <b>Procesando</b>, en Supabase pon <b>Confirm email = OFF</b>.
+          </div>
+        )}
       </div>
     </div>
   );

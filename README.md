@@ -95,6 +95,7 @@ Guía completa: **[`supabase/README.md`](supabase/README.md)**.
 | `20261118_roles_editorial_payments.sql` | Roles (admin/editor), encargos editoriales (Modalidad D) y núcleo de pagos. Ver [`docs/modelo-comercial.md`](docs/modelo-comercial.md) |
 | `20261119_pricing_catalog.sql` | Catálogo de precios en USD editable desde el panel (Precios), cotizador editorial e historial de cambios. Ver [`docs/modelo-comercial.md`](docs/modelo-comercial.md) |
 | `20261120_checkout_paypal_transfer.sql` | Cobro con PayPal y transferencia, monedero de créditos y activación de la cuenta al pagar. Ver [`docs/modelo-comercial.md`](docs/modelo-comercial.md) |
+| `20261121_free_plan.sql` | Plan gratis: título y títulos de capítulos hasta un tope de palabras (editable en Precios), con contador por usuario. Ver [`docs/modelo-comercial.md`](docs/modelo-comercial.md) |
 | `20261117_dedupe_singleton_sections.sql` | Una sola propuesta e introducción por libro: une duplicados (conserva la más reciente con texto y todo el historial) y lo impide en adelante |
 
 `.github/workflows/database-schema.yml` instala el esquema completo en un Postgres vacío en cada PR que toque SQL.

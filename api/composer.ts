@@ -99,6 +99,8 @@ import { GoogleGenAI } from '@google/genai';
 import { requireUserOrWorker } from '../src/server/request-auth.js';
 import { applyRetryAfter, QuotaExceededError } from '../src/server/rate-limit.js';
 import { guardPaidRequest } from '../src/server/request-guard.js';
+import { enforceQuota } from '../src/server/rate-limit.js';
+import { assertFreePlanAllows, countWordsDeep, recordFreePlanUsage } from '../src/server/free-plan.js';
 
 /**
  * Vercel Serverless Function: POST /api/composer
@@ -715,8 +717,6 @@ export default async function handler(req: any, res: any) {
   try {
     // Protege el endpoint: solo usuarios autenticados o workers con secreto.
     const principal = await requireUserOrWorker(req);
-    // Acceso aprobado + límite de uso por usuario (protege la cuota de Gemini).
-    await guardPaidRequest(principal, 'composer');
 
     const contentType = String(req.headers?.['content-type'] ?? '');
     // No lo hacemos súper estricto, pero ayuda a evitar body raro
@@ -735,6 +735,19 @@ export default async function handler(req: any, res: any) {
     const state = body?.state;
 
     if (!task || !state) return res.status(400).json({ error: 'Missing task/state' });
+
+    // Acceso de pago + límite de uso por usuario (protege la cuota de Gemini).
+    // Sin plan de pago: solo lo que incluye el plan gratis (expediente e índice)
+    // y hasta su tope de palabras.
+    let freePlanUserId: string | null = null;
+    try {
+      await guardPaidRequest(principal, 'composer');
+    } catch (guardError: any) {
+      if (guardError?.code !== 'ACCESS_NOT_APPROVED' || principal.kind !== 'user') throw guardError;
+      await assertFreePlanAllows(principal.userId, getAction(task));
+      await enforceQuota(principal, 'composer');
+      freePlanUserId = principal.userId;
+    }
 
     const requestedModel = normalizeRequestedModel(body?.model || 'gemini-3.1-flash-lite');
     const model = ALLOWED_MODELS.has(requestedModel) ? requestedModel : 'gemini-3.1-flash-lite';
@@ -905,6 +918,7 @@ export default async function handler(req: any, res: any) {
       return !n || title === `Capítulo ${n}`;
     });
     if (invalid) return res.status(502).json({error: 'El modelo no entregó el índice completo con títulos editoriales. Se conservó el proyecto; la redacción no se ha iniciado.'});
+    if (freePlanUserId) await recordFreePlanUsage(freePlanUserId, countWordsDeep(parsed?.project_state_updated));
     return res.status(200).json(parsed);
   } catch (e: any) {
     if (e instanceof QuotaExceededError) {
@@ -920,6 +934,6 @@ export default async function handler(req: any, res: any) {
       return res.status(429).json({ error: msg });
     }
 
-    return res.status(statusCode).json({ error: msg });
+    return res.status(statusCode).json({ error: msg, code: e?.code });
   }
 }

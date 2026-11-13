@@ -263,3 +263,44 @@ begin
   reset role;
 end $$;
 select 'CHECKOUT OK';
+
+-- ---------- Plan gratis (20261121) ----------
+do $$
+declare n int; v int;
+begin
+  -- Público: ve el plan gratis en el catálogo.
+  set local role anon;
+  select count(*) into n from public.pricing_catalog where code = 'FREE_PLAN' and kind = 'FREE' and price_usd = 0 and (limits->>'max_words')::int = 5000;
+  if n <> 1 then raise exception 'Plan gratis no visible'; end if;
+  reset role;
+
+  -- El usuario no puede sumarse ni borrarse palabras.
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', '88888888-8888-8888-8888-888888888888', true);
+  begin
+    perform public.free_plan_record('88888888-8888-8888-8888-888888888888', -100000);
+    raise exception 'El usuario ejecutó free_plan_record';
+  exception when insufficient_privilege then null; end;
+  begin
+    insert into public.free_plan_usage(user_id, words_used) values ('88888888-8888-8888-8888-888888888888', 0);
+    raise exception 'El usuario escribió su consumo';
+  exception when insufficient_privilege then null; end;
+  reset role;
+
+  -- El servidor suma el consumo (acumulativo, sin negativos).
+  v := public.free_plan_record('88888888-8888-8888-8888-888888888888', 1200);
+  v := public.free_plan_record('88888888-8888-8888-8888-888888888888', 900);
+  v := public.free_plan_record('88888888-8888-8888-8888-888888888888', -50);
+  if v <> 2100 then raise exception 'Consumo del plan gratis: %', v; end if;
+
+  -- El usuario ve solo su consumo.
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', '88888888-8888-8888-8888-888888888888', true);
+  select count(*) into n from public.free_plan_usage where words_used = 2100;
+  if n <> 1 then raise exception 'El usuario no ve su consumo'; end if;
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  select count(*) into n from public.free_plan_usage;
+  if n <> 0 then raise exception 'Un usuario ve el consumo de otro'; end if;
+  reset role;
+end $$;
+select 'FREE PLAN OK';

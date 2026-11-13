@@ -1,7 +1,7 @@
 // Pricing Engine — cálculos puros. Los PRECIOS no están aquí: vienen de
 // pricing_catalog / pricing_settings (Supabase), editables desde el panel.
 
-export type CatalogKind = "BOOK" | "CREDIT_PACK" | "SUBSCRIPTION" | "EDITORIAL_TIER" | "CREDIT_COST";
+export type CatalogKind = "FREE" | "BOOK" | "CREDIT_PACK" | "SUBSCRIPTION" | "EDITORIAL_TIER" | "CREDIT_COST";
 
 export type CatalogItem = {
   code: string;
@@ -141,4 +141,12 @@ export function formatUsd(amount: number | null | undefined, opts: { decimals?: 
 
 export function byKind(items: CatalogItem[], kind: CatalogKind): CatalogItem[] {
   return items.filter((i) => i.kind === kind && i.active).sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/** Los N planes de pago más baratos (libro, créditos, suscripción) activos. */
+export function cheapestPaidPlans(items: CatalogItem[], n = 3): CatalogItem[] {
+  return items
+    .filter((i) => i.active && ["BOOK", "CREDIT_PACK", "SUBSCRIPTION"].includes(i.kind) && Number(i.price_usd) > 0)
+    .sort((a, b) => Number(a.price_usd) - Number(b.price_usd) || a.sort_order - b.sort_order)
+    .slice(0, n);
 }

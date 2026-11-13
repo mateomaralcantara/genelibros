@@ -4,12 +4,17 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatMessage } from '../types';
 import { UserIcon, BotIcon, SendIcon, AlertTriangleIcon } from './Icons';
+import PromptPlanner from './PromptPlanner';
 
 interface ChatInterfaceProps {
   messages: ChatMessage[];
   isLoading: boolean;
   onSendMessage: (text: string) => void;
   error: string | null;
+  /** Texto inicial de la caja (p. ej. lo que el visitante escribió antes de registrarse). */
+  initialText?: string;
+  /** Visitante sin cuenta: en vez de enviar o abrir el planificador, pide inscribirse. */
+  onRequireSignup?: (pendingText: string) => void;
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -17,8 +22,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   isLoading,
   onSendMessage,
   error,
+  initialText = '',
+  onRequireSignup,
 }) => {
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState(initialText);
+  const [plannerOpen, setPlannerOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -27,8 +35,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   useEffect(scrollToBottom, [messages]);
 
+  // Recupera lo que el visitante escribió antes de registrarse.
+  useEffect(() => {
+    if (initialText) setInputText((current) => current || initialText);
+  }, [initialText]);
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
+    if (onRequireSignup) {
+      onRequireSignup(inputText);
+      return;
+    }
     onSendMessage(inputText);
     setInputText('');
   };
@@ -85,6 +102,34 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 <span>{error}</span>
             </div>
         )}
+        {plannerOpen ? (
+          <div className="mb-3">
+            <PromptPlanner
+              disabled={isLoading}
+              onClose={() => setPlannerOpen(false)}
+              onUse={(prompt) => {
+                setPlannerOpen(false);
+                onSendMessage(prompt);
+              }}
+              onEdit={(prompt) => {
+                setPlannerOpen(false);
+                setInputText(prompt);
+              }}
+            />
+          </div>
+        ) : (
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <button
+              type="button"
+              onClick={() => (onRequireSignup ? onRequireSignup(inputText) : setPlannerOpen(true))}
+              disabled={isLoading}
+              className="rounded-lg bg-indigo-600 px-3 py-1.5 font-black uppercase tracking-widest text-white hover:bg-indigo-500 disabled:opacity-50"
+            >
+              🧭 Planificador de prompt
+            </button>
+            <span>Responde unas preguntas y armamos el encargo de tu libro. También puedes pegar tu propio prompt abajo.</span>
+          </div>
+        )}
         <form onSubmit={handleSend} className="relative">
           <textarea
             value={inputText}
@@ -92,7 +137,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             onKeyDown={handleKeyDown}
             placeholder="Escribe tu comando aquí... (ej. NUEVO LIBRO: una guía sobre...)"
             className="w-full bg-slate-700 text-slate-100 rounded-lg p-3 pr-20 resize-none border border-slate-600 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-200"
-            rows={Math.min(5, inputText.split('\n').length)}
+            rows={Math.min(8, Math.max(1, inputText.split('\n').length))}
             disabled={isLoading}
           />
           <button

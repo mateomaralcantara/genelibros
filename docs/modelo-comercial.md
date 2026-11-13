@@ -148,3 +148,27 @@ dónde enviar el comprobante) y guarda.
 - Las suscripciones se cobran mes a mes como pago único (sin renovación automática todavía; fase 4).
 - Los créditos se acumulan en el monedero, pero la generación aún no los descuenta (fase 2).
 - PayPal no admite DOP: los encargos editoriales en DOP se pagan por transferencia.
+
+## Plan gratis
+
+Migración: `supabase/migrations/20261121_free_plan.sql` · Servidor: `src/server/free-plan.ts`.
+
+- Cualquier usuario registrado entra a la app sin pagar. Puede lanzar su idea (o usar el **planificador de
+  prompt**) y obtener el **título general y los títulos de los capítulos** (`BUILD_FULL_DOSSIER`).
+- Propuesta, introducción, capítulos y el resto de herramientas abren la ventana «Continúa tu libro» →
+  planes de pago. El servidor lo impone igualmente (402 `FREE_PLAN_UPGRADE`).
+- Tope de palabras: fila `FREE_PLAN` del catálogo (`limits.max_words`, 5.000 por defecto), editable en
+  **Panel del equipo → Precios**. El consumo se guarda en `free_plan_usage` (solo lo escribe el servidor).
+  Al agotarlo: 402 `FREE_PLAN_LIMIT`.
+- Al pagar, `has_access` pasa a `true` y el usuario sale del plan gratis automáticamente.
+- **Visitantes sin cuenta** ven la app; al enviar un encargo o abrir el planificador aparece «Inscríbete gratis».
+  Lo escrito se guarda (sessionStorage) y vuelve a la caja al entrar.
+- La ventana «Genera tu libro completo» muestra los **3 planes de pago más baratos** del catálogo
+  (`cheapestPaidPlans`) con su botón de compra; «Ver todos los planes» abre Servicios.
+
+## Planificador de prompt
+
+`components/PromptPlanner.tsx` + `src/lib/promptPlanner.ts`: tres pasos (idea, lector y estilo, estructura)
+que arman el encargo con las etiquetas que entiende el motor (`TÍTULO DE TRABAJO`, `N capítulos`,
+`CAPÍTULO N: …`). No usa IA, así que no consume palabras ni cuota. El autor puede revisar y editar el
+prompt antes de enviarlo, o seguir pegando su propio prompt.
