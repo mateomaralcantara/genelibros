@@ -5,17 +5,28 @@ import React from "react";
 import { byKind, formatUsd, pricePerCredit, type CatalogItem } from "../../src/lib/commercial/pricing";
 
 const PAYMENTS_NOTE =
-  "El pago en línea (PayPal, AZUL y tarjeta) se está activando. Mientras tanto puedes pagar por transferencia: escríbenos desde «Mis encargos» o a nuestro equipo y te enviamos los datos.";
+  "Paga con PayPal (o tarjeta a través de PayPal) o por transferencia bancaria. Las compras se activan en cuanto el pago queda confirmado.";
+
+/** Lo provee ServicesHub: abre la ventana de pago del producto. */
+export const BuyContext = React.createContext<((item: CatalogItem) => void) | null>(null);
 
 const Check: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <li className="flex gap-2"><span className="text-emerald-300">✓</span><span>{children}</span></li>
 );
 
-const BuyButton: React.FC<{ label: string }> = ({ label }) => (
-  <button type="button" disabled title={PAYMENTS_NOTE} className="mt-5 w-full cursor-not-allowed rounded-xl bg-slate-700 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-slate-300">
-    {label} · pronto
-  </button>
-);
+const BuyButton: React.FC<{ label: string; item: CatalogItem }> = ({ label, item }) => {
+  const buy = React.useContext(BuyContext);
+  return (
+    <button
+      type="button"
+      disabled={!buy}
+      onClick={() => buy?.(item)}
+      className="mt-5 w-full rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+    >
+      {label}
+    </button>
+  );
+};
 
 export const PaymentsNote: React.FC = () => (
   <p className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-4 text-xs text-slate-400">{PAYMENTS_NOTE}</p>
@@ -30,7 +41,7 @@ export const BookPrice: React.FC<{ items: CatalogItem[] }> = ({ items }) => {
       <div className="mt-2 text-5xl font-black text-white">{formatUsd(book.price_usd)}</div>
       <div className="text-xs text-slate-400">por libro · pago único</div>
       <ul className="mt-4 space-y-1.5 text-sm text-slate-200">{book.features.map((f) => <Check key={f}>{f}</Check>)}</ul>
-      <BuyButton label="Crear mi libro" />
+      <BuyButton label="Comprar mi libro" item={book} />
     </div>
   );
 };
@@ -48,7 +59,7 @@ export const CreditPacks: React.FC<{ items: CatalogItem[] }> = ({ items }) => {
             <div className="mt-1 text-sm text-amber-200">{(p.credits ?? 0).toLocaleString("es-DO")} créditos</div>
             {Number(p.limits?.bonus_percent) > 0 && <div className="mt-1 text-xs font-bold text-emerald-300">+{p.limits.bonus_percent} % de regalo</div>}
             <div className="mt-1 text-[11px] text-slate-500">{formatUsd(pricePerCredit(p), { decimals: true })} por crédito</div>
-            <BuyButton label="Comprar" />
+            <BuyButton label="Comprar" item={p} />
           </div>
         ))}
       </div>
@@ -87,7 +98,7 @@ export const SubscriptionPlans: React.FC<{ items: CatalogItem[] }> = ({ items })
           </div>
           {p.description && <p className="mt-1 text-xs text-slate-400">{p.description}</p>}
           <ul className="mt-4 space-y-1.5 text-sm text-slate-200">{p.features.map((f) => <Check key={f}>{f}</Check>)}</ul>
-          <BuyButton label="Suscribirme" />
+          <BuyButton label="Suscribirme" item={p} />
         </div>
       ))}
     </div>

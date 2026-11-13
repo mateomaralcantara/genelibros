@@ -179,3 +179,87 @@ begin
   reset role;
 end $$;
 select 'PRICING OK';
+
+-- ---------- Cobro: transferencia y PayPal (20261120) ----------
+insert into auth.users(id) values ('88888888-8888-8888-8888-888888888888') on conflict do nothing;
+insert into public.profiles(user_id, email, has_access) values ('88888888-8888-8888-8888-888888888888', 'c@x.com', false) on conflict do nothing;
+do $$
+declare v_pay uuid; v_pay2 uuid; v_pp uuid; n int; b int; acc boolean;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', '88888888-8888-8888-8888-888888888888', true);
+
+  -- El cliente pide un paquete por transferencia: el importe sale del catálogo.
+  v_pay := public.client_create_transfer_order('CREDITS_275');
+  v_pay2 := public.client_create_transfer_order('CREDITS_275');
+  if v_pay <> v_pay2 then raise exception 'Se duplicó el pedido pendiente'; end if;
+  select count(*) into n from public.payment_orders where id = v_pay and amount = 25 and currency = 'USD' and credits = 275 and status = 'PENDING';
+  if n <> 1 then raise exception 'Pedido de transferencia incorrecto'; end if;
+  begin
+    perform public.client_create_transfer_order('EDITORIAL_GUIA');
+    raise exception 'Se pudo comprar un nivel editorial por catálogo';
+  exception when raise_exception then
+    if sqlerrm like 'Se pudo%' then raise; end if;
+  end;
+  perform public.client_report_transfer(v_pay, 'REF-123');
+
+  -- El cliente no puede marcarlo pagado ni confirmarlo, ni entregarse créditos.
+  update public.payment_orders set status = 'PAID' where id = v_pay;
+  begin
+    perform public.admin_confirm_transfer(v_pay, 'REF-123');
+    raise exception 'El cliente confirmó su propia transferencia';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform public.fulfill_payment_order(v_pay);
+    raise exception 'El cliente ejecutó la entrega';
+  exception when insufficient_privilege then null; end;
+  begin
+    insert into public.credit_ledger(user_id, delta, reason) values ('88888888-8888-8888-8888-888888888888', 1000, 'x');
+    raise exception 'El cliente se regaló créditos';
+  exception when insufficient_privilege then null; end;
+  select status into strict n from (select 1) x, lateral (select case when status = 'PENDING' then 1 else 0 end as status from public.payment_orders where id = v_pay) y;
+  if n <> 1 then raise exception 'El cliente cambió el estado del pago'; end if;
+
+  -- El admin confirma (dos veces): una transacción, créditos una vez, acceso activado.
+  perform set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', true);
+  perform public.admin_confirm_transfer(v_pay, 'BANCO-998877');
+  perform public.admin_confirm_transfer(v_pay, 'BANCO-998877');
+  select count(*) into n from public.payment_transactions where payment_order_id = v_pay;
+  if n <> 1 then raise exception 'Transacciones duplicadas: %', n; end if;
+  select coalesce(sum(delta), 0) into b from public.credit_ledger where user_id = '88888888-8888-8888-8888-888888888888';
+  if b <> 275 then raise exception 'Créditos entregados: %', b; end if;
+  select has_access into acc from public.profiles where user_id = '88888888-8888-8888-8888-888888888888';
+  if acc is not true then raise exception 'El pago no activó el acceso'; end if;
+
+  -- El cliente ve su saldo.
+  perform set_config('request.jwt.claim.sub', '88888888-8888-8888-8888-888888888888', true);
+  select balance into b from public.credit_balances where user_id = '88888888-8888-8888-8888-888888888888';
+  if b <> 275 then raise exception 'Saldo visible: %', b; end if;
+  reset role;
+
+  -- PayPal (servidor): importe distinto se rechaza; el correcto entrega una sola vez.
+  insert into public.payment_orders(user_id, purpose, amount, currency, provider, idempotency_key, catalog_code, credits)
+  values ('88888888-8888-8888-8888-888888888888', 'CREDITS', 10, 'USD', 'PAYPAL', 'PAYPAL:test', 'CREDITS_100', 100)
+  returning id into v_pp;
+  begin
+    perform public.record_provider_payment(v_pp, 'PAYPAL', 'CAP-1', 1, 'USD');
+    raise exception 'Se aceptó un importe distinto';
+  exception when raise_exception then
+    if sqlerrm like 'Se aceptó%' then raise; end if;
+  end;
+  perform public.record_provider_payment(v_pp, 'PAYPAL', 'CAP-1', 10, 'USD');
+  perform public.record_provider_payment(v_pp, 'PAYPAL', 'CAP-1', 10, 'USD');
+  select coalesce(sum(delta), 0) into b from public.credit_ledger where user_id = '88888888-8888-8888-8888-888888888888';
+  if b <> 375 then raise exception 'Créditos tras PayPal: %', b; end if;
+
+  -- Un usuario sigue sin poder activarse el acceso por su cuenta.
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', '44444444-4444-4444-4444-444444444444', true);
+  begin
+    update public.profiles set has_access = true where user_id = '44444444-4444-4444-4444-444444444444';
+    raise exception 'El usuario se activó el acceso';
+  exception when insufficient_privilege then null; end;
+  reset role;
+end $$;
+select 'CHECKOUT OK';

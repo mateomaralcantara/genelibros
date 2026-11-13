@@ -2,6 +2,7 @@
 // y descarga de entregables. Las acciones las valida la base de datos.
 
 import React, { useCallback, useEffect, useState } from "react";
+import CheckoutDialog, { type CheckoutTarget } from "./CheckoutDialog";
 import {
   addClientComment,
   approveProposal,
@@ -31,6 +32,7 @@ const OrderDetail: React.FC<{ orderId: string; onBack: () => void }> = ({ orderI
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
+  const [checkout, setCheckout] = useState<CheckoutTarget | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -101,11 +103,30 @@ const OrderDetail: React.FC<{ orderId: string; onBack: () => void }> = ({ orderI
             </button>
           )}
           {order.client_approved_at && !paid && (
-            <p className="mt-3 text-sm text-amber-100">
-              Aprobaste la propuesta el {fmtDate(order.client_approved_at)}. El equipo te indicará cómo realizar el pago; el
-              proyecto comienza cuando lo confirmemos.
-            </p>
+            <>
+              <p className="mt-3 text-sm text-amber-100">
+                Aprobaste la propuesta el {fmtDate(order.client_approved_at)}. El proyecto comienza cuando confirmemos el pago.
+              </p>
+              {order.status === "PENDIENTE_APROBACION" && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCheckout({
+                      type: "editorial",
+                      editorialOrderId: order.id,
+                      name: order.working_title || "Servicio editorial",
+                      amount: Number(order.proposal_amount),
+                      currency: String(order.proposal_currency || "USD").toUpperCase(),
+                    })
+                  }
+                  className={`${btn} mt-3 bg-amber-500 text-slate-950 hover:bg-amber-400`}
+                >
+                  Pagar ahora
+                </button>
+              )}
+            </>
           )}
+          {checkout && <CheckoutDialog target={checkout} onClose={() => { setCheckout(null); load(); }} />}
           {paid && <p className="mt-3 text-sm font-bold text-emerald-300">Pago confirmado.</p>}
         </div>
       )}

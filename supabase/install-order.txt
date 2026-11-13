@@ -31,3 +31,4 @@ supabase/migrations/20261118_roles_editorial_payments.sql
 supabase/migrations/20261119_pricing_catalog.sql
 # 6. Reconciliar otra vez (20260525 añade restricciones que la cola OS4 no admite)
 supabase/migrations/20261115_reconcile_shared_tables.sql
+supabase/migrations/20261120_checkout_paypal_transfer.sql

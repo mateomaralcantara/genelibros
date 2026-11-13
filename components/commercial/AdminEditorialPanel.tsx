@@ -20,6 +20,7 @@ import {
 } from "../../src/data/editorialRepo";
 import EditorialQuoteCalculator from "./EditorialQuoteCalculator";
 import PricingAdmin from "./PricingAdmin";
+import PaymentsAdmin from "./PaymentsAdmin";
 import { EDITORIAL_STAGES, EDITORIAL_STATUS_CODES, formatAmount, stageLabel } from "../../src/lib/commercial/editorialStatus";
 
 const input = "w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-sm text-slate-100";
@@ -244,7 +245,7 @@ const AdminEditorialPanel: React.FC<{ isAdmin: boolean; onBack: () => void }> = 
   const [filter, setFilter] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"orders" | "pricing">("orders");
+  const [tab, setTab] = useState<"orders" | "pricing" | "payments">("orders");
 
   useEffect(() => {
     listStaff().then(setStaff).catch(() => setStaff([]));
@@ -266,11 +267,12 @@ const AdminEditorialPanel: React.FC<{ isAdmin: boolean; onBack: () => void }> = 
           <>
             <div className="flex flex-wrap items-center gap-3">
               <button type="button" onClick={onBack} className={`${btn} bg-slate-800 text-slate-200`}>← Volver</button>
-              <h1 className="text-3xl font-black text-white">{tab === "pricing" ? "Precios" : "Encargos editoriales"}</h1>
+              <h1 className="text-3xl font-black text-white">{tab === "pricing" ? "Precios" : tab === "payments" ? "Pagos" : "Encargos editoriales"}</h1>
               {isAdmin && (
                 <div className="flex gap-1">
                   <button type="button" onClick={() => setTab("orders")} className={`${btn} ${tab === "orders" ? "bg-emerald-700 text-white" : "bg-slate-800 text-slate-300"}`}>Encargos</button>
                   <button type="button" onClick={() => setTab("pricing")} className={`${btn} ${tab === "pricing" ? "bg-emerald-700 text-white" : "bg-slate-800 text-slate-300"}`}>Precios</button>
+                  <button type="button" onClick={() => setTab("payments")} className={`${btn} ${tab === "payments" ? "bg-emerald-700 text-white" : "bg-slate-800 text-slate-300"}`}>Pagos</button>
                 </div>
               )}
               {tab === "orders" && <select className={`${input} ml-auto w-auto`} value={filter} onChange={(e) => setFilter(e.target.value)}>
@@ -278,7 +280,7 @@ const AdminEditorialPanel: React.FC<{ isAdmin: boolean; onBack: () => void }> = 
                 {EDITORIAL_STATUS_CODES.map((c) => <option key={c} value={c}>{stageLabel(c)}</option>)}
               </select>}
             </div>
-            {tab === "pricing" && isAdmin ? <div className="mt-6"><PricingAdmin /></div> : <>
+            {tab === "payments" && isAdmin ? <div className="mt-6"><PaymentsAdmin /></div> : tab === "pricing" && isAdmin ? <div className="mt-6"><PricingAdmin /></div> : <>
             {error && <div className="mt-4 text-sm text-red-300">{error}</div>}
             {!orders && !error && <div className="mt-6 text-sm text-slate-400">Cargando…</div>}
             {orders && !orders.length && <div className="mt-6 text-sm text-slate-400">No hay encargos.</div>}

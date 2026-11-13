@@ -5,11 +5,13 @@
 import React, { useEffect, useState } from "react";
 import EditorialRequestForm from "./EditorialRequestForm";
 import MyEditorialOrders from "./MyEditorialOrders";
-import { BookPrice, CreditPacks, EditorialTiers, PaymentsNote, PricingOverview, SubscriptionPlans, fromPrice } from "./PricingSections";
+import CheckoutDialog, { type CheckoutTarget } from "./CheckoutDialog";
+import MyPayments from "./MyPayments";
+import { BookPrice, BuyContext, CreditPacks, EditorialTiers, PaymentsNote, PricingOverview, SubscriptionPlans, fromPrice } from "./PricingSections";
 import { listCatalog } from "../../src/data/pricingRepo";
 import type { CatalogItem } from "../../src/lib/commercial/pricing";
 
-type Page = "hub" | "A" | "B" | "C" | "D" | "D_FORM" | "MY_ORDERS";
+type Page = "hub" | "A" | "B" | "C" | "D" | "D_FORM" | "MY_ORDERS" | "MY_PAYMENTS";
 
 const card =
   "text-left rounded-2xl border p-5 transition hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-indigo-400";
@@ -101,9 +103,13 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
       .catch((e) => setCatalogError(e instanceof Error ? e.message : String(e)));
   }, []);
   const back = () => setPage("hub");
+  const [checkout, setCheckout] = useState<CheckoutTarget | null>(null);
+  const buy = (item: CatalogItem) =>
+    item.price_usd != null && setCheckout({ type: "catalog", code: item.code, name: item.name, amountUsd: item.price_usd, credits: item.credits });
   const KIND_BY_MODALITY = { A: "BOOK", B: "SUBSCRIPTION", C: "CREDIT_PACK", D: "EDITORIAL_TIER" } as const;
 
   return (
+    <BuyContext.Provider value={buy}>
     <div className="min-h-full bg-slate-950 px-5 py-8 text-slate-100 md:px-10">
       <div className="mx-auto mb-8 flex max-w-5xl flex-wrap items-center gap-3">
         {onBack && (
@@ -113,6 +119,9 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
         )}
         <button type="button" onClick={() => setPage("MY_ORDERS")} className={`${btn} bg-slate-800 text-slate-200 hover:bg-slate-700`}>
           Mis encargos editoriales
+        </button>
+        <button type="button" onClick={() => setPage("MY_PAYMENTS")} className={`${btn} bg-slate-800 text-slate-200 hover:bg-slate-700`}>
+          Mis pagos y créditos
         </button>
         {onOpenAdmin && (
           <button type="button" onClick={onOpenAdmin} className={`${btn} ml-auto bg-emerald-700 text-white hover:bg-emerald-600`}>
@@ -180,6 +189,17 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
 
       {page === "D_FORM" && <EditorialRequestForm onCancel={() => setPage("D")} onCreated={() => setPage("MY_ORDERS")} />}
       {page === "MY_ORDERS" && <MyEditorialOrders onNewRequest={() => setPage("D")} />}
+      {page === "MY_PAYMENTS" && <MyPayments />}
+      {checkout && (
+        <CheckoutDialog
+          target={checkout}
+          onClose={() => setCheckout(null)}
+          onViewPayments={() => {
+            setCheckout(null);
+            setPage("MY_PAYMENTS");
+          }}
+        />
+      )}
 
       {page === "A" && (
         <ModalityPage
@@ -236,6 +256,7 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
         </ModalityPage>
       )}
     </div>
+    </BuyContext.Provider>
   );
 };
 

@@ -118,3 +118,33 @@ importe, moneda y desglose. Fórmula de margen disponible en `priceFromCost`: P 
 
 Limitación actual: los botones de compra están desactivados («pronto») hasta integrar las pasarelas
 (fase 3); hoy se cobra por transferencia y el admin la registra manualmente.
+
+## Cobro: PayPal y transferencia
+
+Migración: `supabase/migrations/20261120_checkout_paypal_transfer.sql` · API: `api/payments.ts` · Cliente PayPal: `src/server/paypal.ts`.
+
+| Método | Cómo se confirma | Quién |
+|---|---|---|
+| **PayPal** (y tarjeta vía PayPal) | El servidor captura la orden (`/v2/checkout/orders/{id}/capture`) y solo si PayPal responde `COMPLETED` con el mismo importe y moneda la marca pagada. Respaldo: webhook `PAYMENT.CAPTURE.COMPLETED` verificado con `/v1/notifications/verify-webhook-signature`. | Automático |
+| **Transferencia** | El cliente pide el pedido y escribe la referencia; un admin confirma en **Panel del equipo → Pagos** cuando ve el dinero en el banco. | Admin |
+
+Al confirmarse el pago (una sola vez, `fulfilled_at`): se suman los créditos del producto al monedero
+(`credit_ledger`), se activa la cuenta (`profiles.has_access = true`) o el encargo editorial pasa a
+CONTRATADO. El importe siempre sale del catálogo o de la propuesta, nunca del navegador.
+
+### Activar PayPal
+1. En https://developer.paypal.com → *Apps & Credentials* crea una app REST (primero en **Sandbox**).
+2. En Vercel → *Settings → Environment Variables* añade: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`,
+   `PAYPAL_ENV` (`sandbox` o `live`) y `PAYPAL_WEBHOOK_ID`.
+3. En la app de PayPal crea un webhook a `https://TU-DOMINIO/api/payments?action=paypal-webhook` con el
+   evento *Payment capture completed* y copia su id en `PAYPAL_WEBHOOK_ID`.
+4. Redeploy y en **Panel del equipo → Pagos** marca «PayPal y tarjeta».
+
+### Activar transferencia
+En **Panel del equipo → Pagos** escribe los datos de la cuenta (banco, tipo, número, titular, RNC/cédula,
+dónde enviar el comprobante) y guarda.
+
+### Limitaciones actuales
+- Las suscripciones se cobran mes a mes como pago único (sin renovación automática todavía; fase 4).
+- Los créditos se acumulan en el monedero, pero la generación aún no los descuenta (fase 2).
+- PayPal no admite DOP: los encargos editoriales en DOP se pagan por transferencia.
