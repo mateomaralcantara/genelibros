@@ -12,6 +12,8 @@ import { PenSquareIcon, RocketIcon, BookOpenIcon } from "./components/Icons";
 
 // Vistas que no se muestran al entrar: se descargan al abrirlas por primera vez.
 const BookViewer = lazy(() => import("./components/BookViewer"));
+const ServicesHub = lazy(() => import("./components/commercial/ServicesHub"));
+const AdminEditorialPanel = lazy(() => import("./components/commercial/AdminEditorialPanel"));
 const AutonomousPublishingOS = lazy(() => import("./components/AutonomousPublishingOS"));
 
 const ViewLoading: React.FC = () => (
@@ -47,6 +49,7 @@ import { DeviceSessionScreen } from "./components/DeviceSessionScreen";
 import { DEV_SYSTEM_PROMPT } from "./src/lib/devSystemPrompt";
 import { useDeviceSession } from "./src/hooks/useDeviceSession";
 import { useAccessGate } from "./src/hooks/useAccessGate";
+import { getMyStaffRoles, type StaffRole } from "./src/data/editorialRepo";
 import { useProjects } from "./src/hooks/useProjects";
 import { useUserSettings } from "./src/hooks/useUserSettings";
 import { REGENERATE_CONFIRM_MESSAGE, generatedProgress, isBookComplete, sectionIsGenerated } from "./src/lib/bookCompletion";
@@ -122,6 +125,19 @@ const App: React.FC = () => {
       setError(null);
     },
   });
+
+  // Servicios comerciales (Modalidad D) y panel del equipo.
+  const [commercialView, setCommercialView] = useState<null | "services" | "admin">(null);
+  const [staffRoles, setStaffRoles] = useState<StaffRole[]>([]);
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setStaffRoles([]);
+      setCommercialView(null);
+      return;
+    }
+    getMyStaffRoles().then(setStaffRoles).catch(() => setStaffRoles([]));
+  }, [session?.user?.id]);
+  const isStaff = staffRoles.length > 0;
 
   // libros del usuario
   const {
@@ -749,10 +765,27 @@ const targetWords =
     );
   }
 
+  // Servicios y panel del equipo: disponibles para cualquier usuario con sesión
+  // (también para quien aún espera aprobación, que puede encargar su libro).
+  if (commercialView) {
+    return (
+      <div className="h-screen w-full overflow-y-auto bg-slate-950">
+        <Suspense fallback={<ViewLoading />}>
+          {commercialView === "admin" && isStaff ? (
+            <AdminEditorialPanel isAdmin={staffRoles.includes("admin")} onBack={() => setCommercialView("services")} />
+          ) : (
+            <ServicesHub onBack={() => setCommercialView(null)} onOpenAdmin={isStaff ? () => setCommercialView("admin") : undefined} />
+          )}
+        </Suspense>
+      </div>
+    );
+  }
+
   if (!profile || !profile.has_access) {
     const em = profile?.email || session?.user?.email || "";
     return (
       <AccessProcessingScreen
+        onOpenServices={() => setCommercialView("services")}
         email={em}
         busy={gateBusy}
         requestStatus={request?.status}
@@ -856,6 +889,14 @@ const targetWords =
               onDeleteProject={handleDeleteProject as any}
               isLoading={isLoading || anyGenerating}
             />
+
+            <button
+              type="button"
+              onClick={() => setCommercialView("services")}
+              className="w-full py-2.5 mb-2 bg-amber-500/90 hover:bg-amber-400 text-slate-950 rounded-xl font-black text-xs uppercase tracking-widest transition-colors"
+            >
+              Servicios LibroSeller{isStaff ? " · Equipo" : ""}
+            </button>
 
             <button
               type="button"
