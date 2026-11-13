@@ -128,3 +128,80 @@ export function fromPrice(items: CatalogItem[], kind: CatalogItem["kind"]): stri
   const prices = byKind(items, kind).map((i) => i.price_usd).filter((p): p is number => p != null);
   return prices.length ? `Desde ${formatUsd(Math.min(...prices))}` : null;
 }
+
+/* --------------------------------------------------------------------------
+ * Resumen compacto con TODOS los modelos de precios, en tarjetas. Se muestra
+ * en el inicio de Servicios y al pie de cada modalidad (resaltando la actual).
+ * ------------------------------------------------------------------------ */
+
+type ModalityKey = "A" | "B" | "C" | "D";
+
+const OVERVIEW: Array<{ key: ModalityKey; kind: CatalogItem["kind"]; title: string; unit: string }> = [
+  { key: "A", kind: "BOOK", title: "Crea tu libro", unit: "pago único" },
+  { key: "C", kind: "CREDIT_PACK", title: "Créditos", unit: "sin suscripción" },
+  { key: "B", kind: "SUBSCRIPTION", title: "Suscripción", unit: "al mes" },
+  { key: "D", kind: "EDITORIAL_TIER", title: "Lo hacemos nosotros", unit: "por proyecto" },
+];
+
+function overviewPrice(item: CatalogItem): string {
+  if (item.kind === "EDITORIAL_TIER") return `${formatUsd(item.price_usd)}${item.max_price_usd ? ` – ${formatUsd(item.max_price_usd)}` : "+"}`;
+  return formatUsd(item.price_usd);
+}
+
+function overviewDetail(item: CatalogItem): string | null {
+  if (item.kind === "CREDIT_PACK" || item.kind === "BOOK") return item.credits ? `${item.credits.toLocaleString("es-DO")} créditos` : null;
+  if (item.kind === "SUBSCRIPTION") return item.credits ? `${item.credits.toLocaleString("es-DO")} créditos/mes` : null;
+  return null;
+}
+
+export const PricingOverview: React.FC<{
+  items: CatalogItem[];
+  current?: ModalityKey;
+  onSelect?: (key: ModalityKey) => void;
+}> = ({ items, current, onSelect }) => {
+  const groups = OVERVIEW.map((g) => ({ ...g, rows: byKind(items, g.kind) })).filter((g) => g.rows.length);
+  if (!groups.length) return null;
+  return (
+    <section className="mt-10">
+      <div className="text-xs font-black uppercase tracking-widest text-slate-400">Todos los precios</div>
+      <div className={`mt-3 grid gap-3 sm:grid-cols-2 ${current === "D" ? "" : "lg:grid-cols-4"}`}>
+        {groups.map((g) => {
+          const active = g.key === current;
+          return (
+            <div
+              key={g.key}
+              className={`flex flex-col rounded-2xl border p-4 ${active ? "border-amber-400/60 bg-amber-500/10" : "border-slate-800 bg-slate-900"}`}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="text-sm font-black text-white">{g.title}</div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-500">{g.unit}</div>
+              </div>
+              <table className="mt-3 w-full text-xs">
+                <tbody>
+                  {g.rows.map((r) => (
+                    <tr key={r.code} className="border-t border-slate-800 align-top">
+                      <td className="py-1.5 pr-2 text-slate-300">
+                        {r.name}
+                        {overviewDetail(r) && <div className="text-[10px] text-slate-500">{overviewDetail(r)}</div>}
+                      </td>
+                      <td className="whitespace-nowrap py-1.5 text-right font-black text-amber-200">{overviewPrice(r)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {onSelect && !active && (
+                <button
+                  type="button"
+                  onClick={() => onSelect(g.key)}
+                  className="mt-auto pt-3 text-left text-[11px] font-black uppercase tracking-widest text-indigo-300 hover:text-indigo-200"
+                >
+                  Ver detalles →
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};

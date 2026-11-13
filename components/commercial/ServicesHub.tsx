@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from "react";
 import EditorialRequestForm from "./EditorialRequestForm";
 import MyEditorialOrders from "./MyEditorialOrders";
-import { BookPrice, CreditPacks, EditorialTiers, PaymentsNote, SubscriptionPlans, fromPrice } from "./PricingSections";
+import { BookPrice, CreditPacks, EditorialTiers, PaymentsNote, PricingOverview, SubscriptionPlans, fromPrice } from "./PricingSections";
 import { listCatalog } from "../../src/data/pricingRepo";
 import type { CatalogItem } from "../../src/lib/commercial/pricing";
 
@@ -63,13 +63,14 @@ const EDITORIAL_FLOW = [
   "Te entregamos los archivos finales.",
 ];
 
-const ModalityPage: React.FC<{ title: string; intro: string; features: string[]; onBack: () => void; children?: React.ReactNode }> = ({
-  title,
-  intro,
-  features,
-  onBack,
-  children,
-}) => (
+const ModalityPage: React.FC<{
+  title: string;
+  intro: string;
+  features: string[];
+  onBack: () => void;
+  children?: React.ReactNode;
+  overview?: React.ReactNode;
+}> = ({ title, intro, features, onBack, children, overview }) => (
   <div className="mx-auto max-w-5xl">
     <button type="button" onClick={onBack} className="mb-6 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white">
       ← Volver a servicios
@@ -82,6 +83,7 @@ const ModalityPage: React.FC<{ title: string; intro: string; features: string[];
       ))}
     </ul>
     {children}
+    {overview}
     <PaymentsNote />
   </div>
 );
@@ -143,6 +145,7 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
               </button>
             ))}
           </div>
+          <PricingOverview items={catalog} onSelect={setPage} />
         </div>
       )}
 
@@ -171,6 +174,7 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
           <button type="button" onClick={() => setPage("D_FORM")} className={`${btn} mt-8 bg-amber-500 text-slate-950 hover:bg-amber-400`}>
             Solicitar mi libro
           </button>
+          <PricingOverview items={catalog} current="D" onSelect={setPage} />
         </div>
       )}
 
@@ -179,6 +183,7 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
 
       {page === "A" && (
         <ModalityPage
+          overview={<PricingOverview items={catalog} current="A" onSelect={setPage} />}
           title="Crea tu propio libro"
           intro="Compra la generación de un libro y desarróllalo tú mismo, sin suscripción."
           onBack={back}
@@ -196,6 +201,7 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
       )}
       {page === "B" && (
         <ModalityPage
+          overview={<PricingOverview items={catalog} current="B" onSelect={setPage} />}
           title="Suscripción de autor"
           intro="Un plan mensual con créditos incluidos para producir libros de forma continua. Si se te acaban, compras créditos adicionales."
           onBack={back}
@@ -213,6 +219,7 @@ const ServicesHub: React.FC<{ onBack?: () => void; onOpenAdmin?: () => void }> =
       )}
       {page === "C" && (
         <ModalityPage
+          overview={<PricingOverview items={catalog} current="C" onSelect={setPage} />}
           title="Créditos de producción"
           intro="Compra créditos sin suscripción y úsalos cuando quieras. Cada operación consume según su complejidad."
           onBack={back}
