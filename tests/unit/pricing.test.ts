@@ -109,3 +109,20 @@ describe("utilidades", () => {
     expect(byKind(items, "CREDIT_PACK").map((i) => i.code)).toEqual(["a", "b"]);
   });
 });
+
+import { cardLines } from "../../components/commercial/PricingSections";
+
+describe("tarjetas de precios", () => {
+  const base = { code: "X", name: "X", description: null, max_price_usd: null, billing_interval: null, limits: {}, sort_order: 0, active: true } as any;
+  it("usa las características del producto (máx. 4)", () => {
+    const book = { ...base, kind: "BOOK", price_usd: 15, credits: 150, features: ["a", "b", "c", "d", "e"] };
+    expect(cardLines(book)).toEqual(["a", "b", "c", "d"]);
+  });
+  it("describe un paquete de créditos sin características", () => {
+    const pack = { ...base, kind: "CREDIT_PACK", price_usd: 25, credits: 275, features: [], limits: { bonus_percent: 10 } };
+    const lines = cardLines(pack);
+    expect(lines[0]).toBe("275 créditos");
+    expect(lines[1]).toBe("+10 % de regalo");
+    expect(lines.length).toBeLessThanOrEqual(4);
+  });
+});
