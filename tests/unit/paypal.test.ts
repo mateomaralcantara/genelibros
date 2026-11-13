@@ -45,7 +45,7 @@ describe("paypal", () => {
 
   it("si ya estaba capturada, consulta la orden", async () => {
     const f = fakeFetch({
-      "POST /v2/checkout/orders/ORDER1/capture": () => json(422, { name: "UNPROCESSABLE_ENTITY", message: "ORDER_ALREADY_CAPTURED" }),
+      "POST /v2/checkout/orders/ORDER1/capture": () => json(422, { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "ORDER_ALREADY_CAPTURED" }] }),
       "GET /v2/checkout/orders/ORDER1": () => json(200, completed()),
     });
     expect((await capturePaypalOrder(cfg, "ORDER1", f)).completed).toBe(true);
@@ -66,6 +66,22 @@ describe("paypal", () => {
     const bad = fakeFetch({ "POST /v1/notifications/verify-webhook-signature": () => json(200, { verification_status: "FAILURE" }) });
     expect(await verifyPaypalWebhook(cfg, {}, {}, bad)).toBe(false);
     expect(await verifyPaypalWebhook({ ...cfg, webhookId: "" }, {}, {}, ok)).toBe(false);
+  });
+
+  it("un rechazo de tarjeta se informa con su código", async () => {
+    const f = fakeFetch({
+      "POST /v2/checkout/orders/ORDER1/capture": () =>
+        json(422, { name: "UNPROCESSABLE_ENTITY", debug_id: "abc123", details: [{ issue: "INSTRUMENT_DECLINED" }] }),
+    });
+    await expect(capturePaypalOrder(cfg, "ORDER1", f)).rejects.toThrow(/rechazado.*INSTRUMENT_DECLINED.*abc123/);
+  });
+
+  it("el error al crear la orden muestra código y referencia", async () => {
+    const f = fakeFetch({
+      "POST /v2/checkout/orders": () =>
+        json(422, { name: "UNPROCESSABLE_ENTITY", message: "The requested action could not be performed", debug_id: "d1", details: [{ issue: "PAYEE_ACCOUNT_RESTRICTED" }] }),
+    });
+    await expect(createPaypalOrder(cfg, { paymentOrderId: "p", amount: 10, currency: "USD", description: "x" }, f)).rejects.toThrow(/restricción.*PAYEE_ACCOUNT_RESTRICTED.*d1/);
   });
 
   it("formatea importes", () => {

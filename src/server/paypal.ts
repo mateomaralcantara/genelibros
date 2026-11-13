@@ -30,6 +30,32 @@ export class PaypalError extends Error {
   }
 }
 
+const ISSUE_MESSAGES: Record<string, string> = {
+  INSTRUMENT_DECLINED: "La tarjeta o el medio de pago fue rechazado. Prueba con otra tarjeta o con tu saldo de PayPal.",
+  PAYER_ACTION_REQUIRED: "PayPal necesita que completes un paso adicional. Vuelve a intentarlo.",
+  PAYER_CANNOT_PAY: "PayPal no permite pagar con esta cuenta. Prueba con otra tarjeta o cuenta.",
+  TRANSACTION_REFUSED: "PayPal rechazó la operación. Prueba con otro medio de pago.",
+  PAYEE_ACCOUNT_RESTRICTED: "La cuenta PayPal que recibe los pagos tiene una restricción. El equipo debe revisarla en PayPal.",
+  PAYEE_ACCOUNT_LOCKED_OR_CLOSED: "La cuenta PayPal que recibe los pagos está bloqueada o cerrada.",
+  PAYEE_ACCOUNT_INVALID: "La cuenta PayPal que recibe los pagos no es válida para cobrar.",
+  PAYEE_NOT_ENABLED_FOR_CARD_PROCESSING: "La cuenta PayPal que recibe los pagos no tiene habilitado el cobro con tarjeta.",
+  COMPLIANCE_VIOLATION: "PayPal bloqueó la operación por sus reglas de cumplimiento.",
+  CURRENCY_NOT_SUPPORTED: "La cuenta PayPal que recibe los pagos no admite esta moneda.",
+  PERMISSION_DENIED: "Las credenciales de PayPal no tienen permiso para esta operación.",
+};
+
+/** Mensaje en español con el código de PayPal y su referencia (debug_id) para soporte. */
+export function paypalErrorMessage(body: any, status: number): string {
+  const issue: string | undefined = body?.details?.[0]?.issue || body?.name;
+  const friendly = (issue && ISSUE_MESSAGES[issue]) || body?.details?.[0]?.description || body?.message || `PayPal respondió ${status}`;
+  const tags = [issue && `código ${issue}`, body?.debug_id && `ref. ${body.debug_id}`].filter(Boolean).join(" · ");
+  return tags ? `${friendly} (${tags})` : friendly;
+}
+
+export function paypalIssue(error: unknown): string | null {
+  return error instanceof PaypalError ? (error.details as any)?.details?.[0]?.issue ?? null : null;
+}
+
 async function call(cfg: PaypalConfig, path: string, init: RequestInit, f: FetchLike): Promise<any> {
   const token = await accessToken(cfg, f);
   const res = await f(`${paypalBase(cfg)}${path}`, {
@@ -43,7 +69,10 @@ async function call(cfg: PaypalConfig, path: string, init: RequestInit, f: Fetch
   } catch {
     body = { raw: text };
   }
-  if (!res.ok) throw new PaypalError(body?.message || `PayPal respondió ${res.status}`, res.status, body);
+  if (!res.ok) {
+    console.error("[paypal]", init.method || "GET", path, res.status, JSON.stringify(body));
+    throw new PaypalError(paypalErrorMessage(body, res.status), res.status, body);
+  }
   return body;
 }
 
@@ -126,7 +155,9 @@ export async function capturePaypalOrder(cfg: PaypalConfig, paypalOrderId: strin
     );
     return readCapture(body);
   } catch (error) {
-    if (error instanceof PaypalError && error.status === 422) {
+    // Solo si ya estaba capturada se consulta la orden; cualquier otro rechazo
+    // (p. ej. tarjeta rechazada) se informa al cliente.
+    if (error instanceof PaypalError && error.status === 422 && paypalIssue(error) === "ORDER_ALREADY_CAPTURED") {
       const order = await call(cfg, `/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}`, { method: "GET" }, f);
       return readCapture(order);
     }
