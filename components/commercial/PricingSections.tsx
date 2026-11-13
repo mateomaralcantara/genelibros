@@ -151,7 +151,7 @@ export const PricingCards: React.FC<{
       {!only && (
         <div className="flex flex-wrap items-center gap-2">
           <div className="mr-2 text-xs font-black uppercase tracking-widest text-slate-400">{title}</div>
-          {[{ kind: "ALL" as const, label: "Todos" }, ...available].map((c) => (
+          {[...available, { kind: "ALL" as const, label: "Todos" }].map((c) => (
             <button
               key={c.kind}
               type="button"
