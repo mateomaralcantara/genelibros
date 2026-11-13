@@ -10,6 +10,8 @@ export type AccessProcessingScreenProps = {
   error?: string | null;
   onRefresh: () => void;
   onSignOut: () => void;
+  /** Abre los servicios (p. ej. encargar el libro al equipo editorial). */
+  onOpenServices?: () => void;
 };
 
 export const AccessProcessingScreen: React.FC<AccessProcessingScreenProps> = ({
@@ -19,6 +21,7 @@ export const AccessProcessingScreen: React.FC<AccessProcessingScreenProps> = ({
   error,
   onRefresh,
   onSignOut,
+  onOpenServices,
 }) => {
   const statusLabel = requestStatus || "PENDING";
 
@@ -69,6 +72,18 @@ export const AccessProcessingScreen: React.FC<AccessProcessingScreenProps> = ({
             </p>
           )}
         </div>
+
+        {onOpenServices && (
+          <button
+            type="button"
+            onClick={onOpenServices}
+            className="mt-6 w-full rounded-2xl border border-amber-400/40 bg-gradient-to-br from-amber-500/20 to-fuchsia-500/10 p-4 text-left transition hover:border-amber-300"
+          >
+            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-200">Servicio editorial premium</div>
+            <div className="mt-1 text-base font-black text-white">¿Prefieres que escribamos tu libro por ti?</div>
+            <div className="mt-1 text-xs text-slate-300">Encárgaselo a nuestro equipo editorial. Precio especial según tu proyecto.</div>
+          </button>
+        )}
 
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button

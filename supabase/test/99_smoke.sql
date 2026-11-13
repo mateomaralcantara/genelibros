@@ -66,3 +66,85 @@ begin
   reset role;
 end $$;
 select 'RLS OK';
+
+-- ---------- Modalidad D: encargo editorial y pago (20261118) ----------
+insert into auth.users(id) values ('66666666-6666-6666-6666-666666666666'), ('77777777-7777-7777-7777-777777777777') on conflict do nothing;
+insert into public.app_roles(user_id, role) values
+  ('66666666-6666-6666-6666-666666666666', 'admin'),
+  ('77777777-7777-7777-7777-777777777777', 'editor') on conflict do nothing;
+
+do $$
+declare v_order uuid; n int; v_status text;
+begin
+  -- Cliente A crea su solicitud.
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  insert into public.editorial_orders(user_id, idea, working_title) values ('11111111-1111-1111-1111-111111111111', 'Mi historia familiar', 'Raíces') returning id into v_order;
+
+  -- No puede crearla ya contratada ni con precio.
+  begin
+    insert into public.editorial_orders(user_id, idea, status) values ('11111111-1111-1111-1111-111111111111', 'x', 'CONTRATADO');
+    raise exception 'El cliente creó un encargo con estado administrativo';
+  exception when insufficient_privilege then null; end;
+
+  -- No puede cambiar el estado (sin política UPDATE: 0 filas).
+  update public.editorial_orders set status = 'ENTREGADO' where id = v_order;
+  select status into v_status from public.editorial_orders where id = v_order;
+  if v_status <> 'RECIBIDA' then raise exception 'El cliente cambió el estado de su encargo'; end if;
+
+  -- No puede aprobar sin propuesta.
+  begin
+    perform public.editorial_client_approve_proposal(v_order);
+    raise exception 'Se aprobó un encargo sin propuesta';
+  exception when raise_exception then
+    if sqlerrm like 'Se aprobó%' then raise; end if;
+  end;
+
+  -- Otro usuario no ve el encargo.
+  perform set_config('request.jwt.claim.sub', '44444444-4444-4444-4444-444444444444', true);
+  select count(*) into n from public.editorial_orders where id = v_order;
+  if n <> 0 then raise exception 'B ve el encargo de A'; end if;
+
+  -- Editor: evalúa y envía propuesta (queda en el historial).
+  perform set_config('request.jwt.claim.sub', '77777777-7777-7777-7777-777777777777', true);
+  update public.editorial_orders set status = 'EN_EVALUACION', assigned_to = '77777777-7777-7777-7777-777777777777' where id = v_order;
+  update public.editorial_orders set status = 'PROPUESTA_ENVIADA', proposal_amount = 100, proposal_currency = 'DOP',
+         proposal_terms = 'Condiciones de prueba', proposal_sent_at = now() where id = v_order;
+  select count(*) into n from public.editorial_order_events where order_id = v_order and kind = 'STATUS';
+  if n <> 2 then raise exception 'Faltan eventos de estado: %', n; end if;
+
+  -- El editor no puede confirmar pagos.
+  begin
+    perform public.admin_record_manual_payment(v_order, 100, 'DOP', 'REF-1');
+    raise exception 'Un editor confirmó un pago';
+  exception when insufficient_privilege then null; end;
+
+  -- Cliente aprueba la propuesta (no queda pagado).
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  perform public.editorial_client_approve_proposal(v_order);
+  select count(*) into n from public.payment_orders where reference_id = v_order and status = 'PAID';
+  if n <> 0 then raise exception 'Aprobar marcó el pedido como pagado'; end if;
+  -- El cliente no ve la asignación interna.
+  select count(*) into n from public.editorial_order_events where order_id = v_order and kind = 'ASSIGNMENT';
+  if n <> 0 then raise exception 'El cliente ve eventos internos'; end if;
+
+  -- Admin confirma el pago verificado (dos veces = idempotente).
+  perform set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', true);
+  perform public.admin_record_manual_payment(v_order, 100, 'DOP', 'REF-1');
+  perform public.admin_record_manual_payment(v_order, 100, 'DOP', 'REF-1');
+  select count(*) into n from public.payment_transactions t join public.payment_orders o on o.id = t.payment_order_id where o.reference_id = v_order;
+  if n <> 1 then raise exception 'Pago duplicado: % transacciones', n; end if;
+  select status into v_status from public.editorial_orders where id = v_order;
+  if v_status <> 'CONTRATADO' then raise exception 'El encargo no pasó a CONTRATADO: %', v_status; end if;
+
+  -- El cliente ve su pago, no puede crear pagos.
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  select count(*) into n from public.payment_orders where reference_id = v_order and status = 'PAID';
+  if n <> 1 then raise exception 'El cliente no ve su pago'; end if;
+  begin
+    insert into public.payment_orders(user_id, purpose, amount, currency, idempotency_key) values ('11111111-1111-1111-1111-111111111111', 'BOOK', 1, 'DOP', 'x');
+    raise exception 'El cliente creó un pago';
+  exception when insufficient_privilege then null; end;
+  reset role;
+end $$;
+select 'EDITORIAL OK';
