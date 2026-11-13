@@ -153,3 +153,6 @@ insert into public.pricing_settings (key, value) values
   "rush_multiplier": 1.25
 }')
 on conflict (key) do nothing;
+
+-- Que la API de Supabase vea las tablas nuevas sin esperar.
+notify pgrst, 'reload schema';
