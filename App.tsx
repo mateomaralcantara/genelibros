@@ -54,6 +54,8 @@ import { useProjects } from "./src/hooks/useProjects";
 import { useUserSettings } from "./src/hooks/useUserSettings";
 import { isUpgradeError, useFreePlanUsage } from "./src/hooks/useFreePlanUsage";
 import { FREE_PLAN_UPGRADE_TEXT, FreePlanBanner, UpgradeModal } from "./components/FreePlan";
+import { listCatalog } from "./src/data/pricingRepo";
+import { cheapestPaidPlans, type CatalogItem } from "./src/lib/commercial/pricing";
 import { REGENERATE_CONFIRM_MESSAGE, generatedProgress, isBookComplete, sectionIsGenerated } from "./src/lib/bookCompletion";
 import {
   persistProjectMeta,
@@ -79,6 +81,27 @@ const GEMINI_MODEL = /^(?:models\/)?gemini-2\.(?:0|5)-/i.test(configuredGeminiMo
 const DEV_GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY ?? "";
 const MAX_MASTER_CHARS_TO_SEND = 70_000; // balance: contexto amplio sin reventar tokens
 
+
+const CheckoutDialog = lazy(() => import("./components/commercial/CheckoutDialog"));
+
+// Lo que un visitante escribió antes de registrarse, para recuperarlo al entrar.
+const PENDING_IDEA_KEY = "genelibros.pendingIdea";
+function savePendingIdea(text: string) {
+  try {
+    if (text.trim()) sessionStorage.setItem(PENDING_IDEA_KEY, text);
+  } catch {
+    /* sin almacenamiento: no pasa nada */
+  }
+}
+function takePendingIdea(): string {
+  try {
+    const v = sessionStorage.getItem(PENDING_IDEA_KEY) || "";
+    sessionStorage.removeItem(PENDING_IDEA_KEY);
+    return v;
+  } catch {
+    return "";
+  }
+}
 
 const initialWelcomeMessage: ChatMessage = {
   id: "welcome-0",
@@ -150,6 +173,23 @@ const App: React.FC = () => {
   const freeUsage = useFreePlanUsage(isFreePlan);
   const freeUsageRef = useRef(freeUsage);
   freeUsageRef.current = freeUsage;
+  // Ventana de mejora: los 3 planes de pago más baratos del catálogo.
+  const [upgradePlans, setUpgradePlans] = useState<CatalogItem[] | null>(null);
+  const [checkoutItem, setCheckoutItem] = useState<CatalogItem | null>(null);
+  useEffect(() => {
+    if (!upgradeReason || upgradePlans) return;
+    listCatalog()
+      .then((items) => setUpgradePlans(cheapestPaidPlans(items, 3)))
+      .catch(() => setUpgradePlans([]));
+  }, [upgradeReason, upgradePlans]);
+  // Visitante: ventana de registro y texto pendiente.
+  const [signupOpen, setSignupOpen] = useState(false);
+  const [pendingIdea, setPendingIdea] = useState("");
+  useEffect(() => {
+    if (!session) return;
+    const v = takePendingIdea();
+    if (v) setPendingIdea(v);
+  }, [session]);
 
   // libros del usuario
   const {
@@ -767,8 +807,54 @@ const targetWords =
   /* ------------------------------ render gates ------------------------------ */
 
   if (!session) {
+    const openSignup = (text: string) => {
+      savePendingIdea(text);
+      setAuthMode("signup");
+      setAuthNotice(null);
+      setError(null);
+      setSignupOpen(true);
+    };
     return (
+      <div className="flex h-screen w-full flex-col bg-slate-950 text-slate-100">
+        <header className="flex shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-900 px-4 py-3">
+          <PenSquareIcon className="h-7 w-7 text-indigo-400" />
+          <div className="text-lg font-black tracking-tight text-white">BestSeller</div>
+          <span className="hidden text-xs text-slate-400 sm:inline">Escribe tu libro con inteligencia artificial</span>
+          <div className="ml-auto flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode("signin");
+                setAuthNotice(null);
+                setError(null);
+                setSignupOpen(true);
+              }}
+              className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-200 hover:bg-slate-700"
+            >
+              Iniciar sesión
+            </button>
+            <button
+              type="button"
+              onClick={() => openSignup("")}
+              className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-950 hover:bg-emerald-400"
+            >
+              Empieza gratis
+            </button>
+          </div>
+        </header>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <ChatInterface messages={messages} isLoading={false} onSendMessage={() => undefined} onRequireSignup={openSignup} error={null} />
+        </div>
+        {signupOpen && (
       <AuthScreen
+        variant="modal"
+        heading={authMode === "signup" ? "Inscríbete gratis" : "Inicia sesión"}
+        subheading={
+          authMode === "signup"
+            ? "Crea tu cuenta del plan gratis: título y capítulos de tu libro, hasta 5.000 palabras. Sin tarjeta."
+            : "Entra para seguir con tus libros."
+        }
+        onClose={() => setSignupOpen(false)}
         buildTag={BUILD_TAG}
         mode={authMode}
         onMode={(m) => {
@@ -789,6 +875,8 @@ const targetWords =
         error={error}
         notice={authNotice}
       />
+        )}
+      </div>
     );
   }
 
@@ -1022,7 +1110,7 @@ const targetWords =
               )
             ) : (
               <div className="min-h-full bg-slate-950">
-                <ChatInterface messages={messages} isLoading={isLoading} onSendMessage={handleStartNewBook} error={error} />
+                <ChatInterface messages={messages} isLoading={isLoading} onSendMessage={handleStartNewBook} error={error} initialText={pendingIdea} />
               </div>
             )}
 
@@ -1035,15 +1123,35 @@ const targetWords =
           </div>
         </main>
       </div>
-      {upgradeReason && (
+      {upgradeReason && !checkoutItem && (
         <UpgradeModal
           reason={upgradeReason}
+          plans={upgradePlans}
+          onBuy={(item) => setCheckoutItem(item)}
           onClose={() => setUpgradeReason(null)}
-          onUpgrade={() => {
+          onSeeAll={() => {
             setUpgradeReason(null);
             setCommercialView("services");
           }}
         />
+      )}
+      {checkoutItem && (
+        <Suspense fallback={null}>
+          <CheckoutDialog
+            target={{ type: "catalog", code: checkoutItem.code, name: checkoutItem.name, amountUsd: Number(checkoutItem.price_usd), credits: checkoutItem.credits }}
+            onClose={() => {
+              setCheckoutItem(null);
+              setUpgradeReason(null);
+              // Si el pago se confirmó, la cuenta ya tiene acceso completo.
+              refreshApprovalStatus().catch(() => undefined);
+            }}
+            onViewPayments={() => {
+              setCheckoutItem(null);
+              setUpgradeReason(null);
+              setCommercialView("services");
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );

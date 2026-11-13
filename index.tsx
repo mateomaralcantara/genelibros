@@ -14,9 +14,11 @@ root.render(
     <div
       style={{
         position: 'fixed',
-        top: 8,
+        bottom: 8,
         left: 8,
         zIndex: 999999,
+        pointerEvents: 'none',
+        opacity: 0.75,
         fontFamily: 'monospace',
         fontSize: 12,
         padding: '6px 8px',

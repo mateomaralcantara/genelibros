@@ -11,6 +11,10 @@ interface ChatInterfaceProps {
   isLoading: boolean;
   onSendMessage: (text: string) => void;
   error: string | null;
+  /** Texto inicial de la caja (p. ej. lo que el visitante escribió antes de registrarse). */
+  initialText?: string;
+  /** Visitante sin cuenta: en vez de enviar o abrir el planificador, pide inscribirse. */
+  onRequireSignup?: (pendingText: string) => void;
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -18,8 +22,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   isLoading,
   onSendMessage,
   error,
+  initialText = '',
+  onRequireSignup,
 }) => {
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState(initialText);
   const [plannerOpen, setPlannerOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -29,8 +35,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   useEffect(scrollToBottom, [messages]);
 
+  // Recupera lo que el visitante escribió antes de registrarse.
+  useEffect(() => {
+    if (initialText) setInputText((current) => current || initialText);
+  }, [initialText]);
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
+    if (onRequireSignup) {
+      onRequireSignup(inputText);
+      return;
+    }
     onSendMessage(inputText);
     setInputText('');
   };
@@ -106,7 +121,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
             <button
               type="button"
-              onClick={() => setPlannerOpen(true)}
+              onClick={() => (onRequireSignup ? onRequireSignup(inputText) : setPlannerOpen(true))}
               disabled={isLoading}
               className="rounded-lg bg-indigo-600 px-3 py-1.5 font-black uppercase tracking-widest text-white hover:bg-indigo-500 disabled:opacity-50"
             >

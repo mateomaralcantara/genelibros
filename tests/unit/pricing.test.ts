@@ -126,3 +126,23 @@ describe("tarjetas de precios", () => {
     expect(lines.length).toBeLessThanOrEqual(4);
   });
 });
+
+import { cheapestPaidPlans } from "../../src/lib/commercial/pricing";
+
+describe("planes más baratos", () => {
+  const mk = (code: string, kind: any, price: number | null, sort: number, active = true) =>
+    ({ code, kind, name: code, description: null, price_usd: price, max_price_usd: null, credits: 1, billing_interval: null, features: [], limits: {}, sort_order: sort, active }) as any;
+  it("devuelve los 3 de pago más baratos, sin gratis, editorial, costos ni inactivos", () => {
+    const items = [
+      mk("FREE", "FREE", 0, 0),
+      mk("SUB25", "SUBSCRIPTION", 25, 30),
+      mk("BOOK15", "BOOK", 15, 1),
+      mk("CR10", "CREDIT_PACK", 10, 10),
+      mk("CR25", "CREDIT_PACK", 25, 11),
+      mk("ED100", "EDITORIAL_TIER", 100, 40),
+      mk("COST", "CREDIT_COST", null, 50),
+      mk("OFF5", "BOOK", 5, 2, false),
+    ];
+    expect(cheapestPaidPlans(items).map((i) => i.code)).toEqual(["CR10", "BOOK15", "CR25"]);
+  });
+});

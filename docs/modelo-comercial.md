@@ -161,6 +161,10 @@ Migración: `supabase/migrations/20261121_free_plan.sql` · Servidor: `src/serve
   **Panel del equipo → Precios**. El consumo se guarda en `free_plan_usage` (solo lo escribe el servidor).
   Al agotarlo: 402 `FREE_PLAN_LIMIT`.
 - Al pagar, `has_access` pasa a `true` y el usuario sale del plan gratis automáticamente.
+- **Visitantes sin cuenta** ven la app; al enviar un encargo o abrir el planificador aparece «Inscríbete gratis».
+  Lo escrito se guarda (sessionStorage) y vuelve a la caja al entrar.
+- La ventana «Genera tu libro completo» muestra los **3 planes de pago más baratos** del catálogo
+  (`cheapestPaidPlans`) con su botón de compra; «Ver todos los planes» abre Servicios.
 
 ## Planificador de prompt
 
